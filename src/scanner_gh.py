@@ -1,14 +1,10 @@
 ﻿import os
 import sys
 import json
-import time
 from datetime import datetime, timezone
 
 import ccxt
 import pandas as pd
-import numpy as np
-
-sys.path.insert(0, 'C:/avax_quant_system')
 import requests
 
 ROOT = 'C:/avax_quant_system'
@@ -28,6 +24,11 @@ BB_MULT = 2.0
 VOL_FACTOR = 0.8
 START_BALANCE = 1000.0
 RISK_PER_TRADE = 0.02
+
+
+def get_exchange():
+    # Bybit works from GitHub Actions cloud IPs (Binance blocks them)
+    return ccxt.bybit({'enableRateLimit': True})
 
 
 def get_webhook():
@@ -81,26 +82,23 @@ def bb_lower(series, period, mult):
     return ma - mult * sd
 
 
-def fetch_avax():
-    ex = ccxt.binance({'enableRateLimit': True})
-    raw = ex.fetch_ohlcv(SYMBOL, TIMEFRAME, limit=LIMIT)
+def fetch_ohlcv(symbol, ex):
+    raw = ex.fetch_ohlcv(symbol, TIMEFRAME, limit=LIMIT)
     df = pd.DataFrame(raw, columns=['ts', 'open', 'high', 'low', 'close', 'volume'])
     df['ts'] = pd.to_datetime(df['ts'], unit='ms')
     df = df.set_index('ts')
     return df
 
 
-def fetch_btc_up():
-    ex = ccxt.binance({'enableRateLimit': True})
-    raw = ex.fetch_ohlcv('BTC/USDT', TIMEFRAME, limit=LIMIT)
-    df = pd.DataFrame(raw, columns=['ts', 'open', 'high', 'low', 'close', 'volume'])
+def fetch_btc_up(ex):
+    df = fetch_ohlcv('BTC/USDT', ex)
     df['close'] = df['close'].astype(float)
     ema = df['close'].ewm(span=50, adjust=False).mean()
     return bool(df['close'].iloc[-1] > ema.iloc[-1])
 
 
-def check_signal():
-    df = fetch_avax()
+def check_signal(ex):
+    df = fetch_ohlcv(SYMBOL, ex)
     close = df['close']
     open_p = df['open']
     low = df['low']
@@ -119,7 +117,7 @@ def check_signal():
     bb_touch = float(low.iloc[-1]) <= float(bbl.iloc[-1]) * 1.005
     green = price > float(open_p.iloc[-1])
     volume_ok = float(vol.iloc[-1]) > float(vol_ma.iloc[-1]) * VOL_FACTOR
-    btc_up = fetch_btc_up()
+    btc_up = fetch_btc_up(ex)
 
     fired = uptrend and oversold and bb_touch and green and volume_ok and btc_up
     return {
@@ -168,12 +166,12 @@ def run_once():
     state = load_json(STATE_FILE, {'last_signal_ts': 0, 'active_trade': None})
     paper = load_json(PAPER_STATE, {'balance': START_BALANCE, 'open_trade': None, 'history': []})
 
-    s = check_signal()
+    ex = get_exchange()
+    s = check_signal(ex)
     print(f"[{datetime.now(timezone.utc).isoformat()}] price={s['price']:.4f} "
           f"rsi2={s['rsi2']} uptrend={s['uptrend']} oversold={s['oversold']} "
           f"bb={s['bb_touch']} green={s['green']} vol={s['volume_ok']} btc={s['btc_up']}")
 
-    # Update paper trade P&L
     price = s['price']
     t = paper.get('open_trade')
     if t:
@@ -186,13 +184,11 @@ def run_once():
             send(f"**PAPER SL HIT** | AVAX entry `{t['entry']:.4f}` -> `{t['sl']:.4f}` | P&L `${pnl:.2f}` | Balance `${paper['balance']:.2f}`")
             paper['open_trade'] = None
 
-    # Check for new signal
     if s['signal_fired'] and s['ts'] != state.get('last_signal_ts'):
         tp = s['price'] * (1 + TP_PCT)
         sl = s['price'] * (1 - SL_PCT)
         send(f"**BUY SIGNAL** | AVAX/USDT | 1h\nEntry: `{s['price']:.4f}`\nTP: `{tp:.4f}` | SL: `{sl:.4f}`\nRSI2: `{s['rsi2']}`")
         state['last_signal_ts'] = s['ts']
-        # Open paper trade
         trade = open_paper_trade(s['price'], paper['balance'])
         paper['open_trade'] = trade
         send(f"**PAPER BUY** | AVAX entry `{trade['entry']:.4f}` | TP `{trade['tp']:.4f}` | SL `{trade['sl']:.4f}` | Size `{trade['size']}` | Balance `${paper['balance']:.2f}`")
