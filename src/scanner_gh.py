@@ -25,10 +25,37 @@ VOL_FACTOR = 0.8
 START_BALANCE = 1000.0
 RISK_PER_TRADE = 0.02
 
+# Fallback chain - tries each exchange in order until one works
+EXCHANGE_CHAIN = [
+    ('okx', {'enableRateLimit': True, 'options': {'defaultType': 'spot'}}),
+    ('kucoin', {'enableRateLimit': True}),
+    ('bitget', {'enableRateLimit': True}),
+    ('mexc', {'enableRateLimit': True}),
+    ('htx', {'enableRateLimit': True}),
+    ('gateio', {'enableRateLimit': True}),
+]
 
-def get_exchange():
-    # Bybit works from GitHub Actions cloud IPs (Binance blocks them)
-    return ccxt.bybit({'enableRateLimit': True})
+
+def get_working_exchange():
+    """Try each exchange in the chain. Return the first one that works."""
+    errors = []
+    for ex_id, config in EXCHANGE_CHAIN:
+        try:
+            ex = getattr(ccxt, ex_id)(config)
+            ex.load_markets()
+            # Quick test - fetch 1 candle
+            ex.fetch_ohlcv(SYMBOL, TIMEFRAME, limit=1)
+            print(f'[EXCHANGE] Using: {ex_id}')
+            return ex
+        except Exception as e:
+            err = f'{ex_id}: {type(e).__name__}: {str(e)[:120]}'
+            print(f'[EXCHANGE] {err}')
+            errors.append(err)
+            continue
+    print(f'[EXCHANGE] All exchanges failed:')
+    for e in errors:
+        print(f'  - {e}')
+    raise RuntimeError('No working exchange found')
 
 
 def get_webhook():
@@ -166,7 +193,14 @@ def run_once():
     state = load_json(STATE_FILE, {'last_signal_ts': 0, 'active_trade': None})
     paper = load_json(PAPER_STATE, {'balance': START_BALANCE, 'open_trade': None, 'history': []})
 
-    ex = get_exchange()
+    try:
+        ex = get_working_exchange()
+    except RuntimeError as e:
+        msg = f"**EXCHANGE ERROR** | All exchanges failed at {datetime.now(timezone.utc).isoformat()}"
+        print(msg)
+        send(msg)
+        return
+
     s = check_signal(ex)
     print(f"[{datetime.now(timezone.utc).isoformat()}] price={s['price']:.4f} "
           f"rsi2={s['rsi2']} uptrend={s['uptrend']} oversold={s['oversold']} "
