@@ -7,10 +7,11 @@ import ccxt
 import pandas as pd
 import requests
 
-ROOT = 'C:/avax_quant_system'
-STATE_FILE = f'{ROOT}/config/scanner_state.json'
-PAPER_STATE = f'{ROOT}/config/paper_state.json'
-TRADES_FILE = f'{ROOT}/config/paper_trades.json'
+# Auto-detect project root — works on Windows AND Linux
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE_FILE = os.path.join(ROOT, 'config', 'scanner_state.json')
+PAPER_STATE = os.path.join(ROOT, 'config', 'paper_state.json')
+TRADES_FILE = os.path.join(ROOT, 'config', 'paper_trades.json')
 
 SYMBOL = 'AVAX/USDT'
 TIMEFRAME = '1h'
@@ -25,7 +26,6 @@ VOL_FACTOR = 0.8
 START_BALANCE = 1000.0
 RISK_PER_TRADE = 0.02
 
-# Fallback chain - tries each exchange in order until one works
 EXCHANGE_CHAIN = [
     ('okx', {'enableRateLimit': True, 'options': {'defaultType': 'spot'}}),
     ('kucoin', {'enableRateLimit': True}),
@@ -37,13 +37,11 @@ EXCHANGE_CHAIN = [
 
 
 def get_working_exchange():
-    """Try each exchange in the chain. Return the first one that works."""
     errors = []
     for ex_id, config in EXCHANGE_CHAIN:
         try:
             ex = getattr(ccxt, ex_id)(config)
             ex.load_markets()
-            # Quick test - fetch 1 candle
             ex.fetch_ohlcv(SYMBOL, TIMEFRAME, limit=1)
             print(f'[EXCHANGE] Using: {ex_id}')
             return ex
@@ -52,7 +50,7 @@ def get_working_exchange():
             print(f'[EXCHANGE] {err}')
             errors.append(err)
             continue
-    print(f'[EXCHANGE] All exchanges failed:')
+    print('[EXCHANGE] All exchanges failed:')
     for e in errors:
         print(f'  - {e}')
     raise RuntimeError('No working exchange found')
@@ -93,6 +91,7 @@ def save_json(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
+    print(f'[STATE] Saved: {path}')
 
 
 def rsi(series, period):
