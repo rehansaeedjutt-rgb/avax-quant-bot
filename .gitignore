@@ -4,3 +4,5 @@ __pycache__/
 data/
 reports/
 config/discord.json
+
+config/mexc.json
