@@ -6,3 +6,9 @@ reports/
 config/discord.json
 
 config/mexc.json
+
+config/grid_state.json
+config/grid_trades.json
+config/scanner_state.json
+config/paper_state.json
+config/paper_trades.json

@@ -23,6 +23,7 @@ PER_GRID_DOLLARS = 20
 MAX_GRIDS = 30
 MAX_HOLD_HOURS = 168
 START_BALANCE = 1000.0
+STALE_DAYS = 4
 
 EXCHANGE_CHAIN = [
     ('okx', {'enableRateLimit': True, 'options': {'defaultType': 'spot'}}),
@@ -63,7 +64,7 @@ def send(content):
         if r.status_code in (200, 204):
             print('[DISCORD] Sent OK')
             return True
-        print(f'[DISCORD] Failed: {r.status_code} {r.text[:150]}')
+        print(f'[DISCORD] Failed: {r.status_code}')
         return False
     except Exception as e:
         print(f'[DISCORD] Error: {e}')
@@ -96,7 +97,7 @@ def process_grid(state, high, low, close, now):
     closed = state['history']
     events = []
 
-    # 1. SELL FILLS
+    # SELL FILLS
     for pos in list(positions):
         target = pos['buy_price'] * (1 + SELL_GAIN_PCT)
         if high >= target:
@@ -113,7 +114,7 @@ def process_grid(state, high, low, close, now):
             positions.remove(pos)
             events.append(('SELL', pos['buy_price'], target, profit, held_h))
 
-    # 2. FORCE EXITS
+    # FORCE EXITS
     for pos in list(positions):
         held_h = (now - pd.to_datetime(pos['buy_time'], utc=True)).total_seconds() / 3600
         if held_h >= MAX_HOLD_HOURS and high >= pos['buy_price']:
@@ -127,13 +128,13 @@ def process_grid(state, high, low, close, now):
             positions.remove(pos)
             events.append(('FORCE', pos['buy_price'], pos['buy_price'], 0, held_h))
 
-    # 3. ANCHOR
+    # ANCHOR
     if state.get('anchor') is None:
         state['anchor'] = close
     elif not positions and high > state['anchor']:
         state['anchor'] = max(state['anchor'], close)
 
-    # 4. BUY FILLS
+    # BUY FILLS
     if len(positions) < MAX_GRIDS and cash >= PER_GRID_DOLLARS:
         if not positions:
             next_level = state['anchor'] * (1 - SPACING_PCT)
@@ -153,13 +154,14 @@ def process_grid(state, high, low, close, now):
     state['cash'] = round(cash, 2)
     state['positions'] = positions
     state['history'] = closed[-500:]
-    return events
+    return events, next_level if 'next_level' in dir() else None
 
 
 def run_once():
     state = load_json(STATE_FILE, {
         'cash': START_BALANCE, 'positions': [], 'history': [],
         'anchor': None, 'last_heartbeat': None, 'last_run': None,
+        'last_trade_date': None,
     })
 
     ex = get_exchange()
@@ -174,36 +176,46 @@ def run_once():
     print(f"[STATE] cash=${state['cash']:.2f} positions={len(state['positions'])} "
           f"anchor={state.get('anchor')}")
 
-    events = process_grid(state, high, low, close, now)
+    events, _ = process_grid(state, high, low, close, now)
 
-    # Send Discord message per event (BUY and SELL only — not FORCE)
     for ev in events:
         kind, buy_p, sell_p, profit, held_h = ev
         if kind == 'BUY':
             send(f"**GRID BUY** | AVAX @ `{buy_p:.4f}`\n"
-                 f"Amount: `${PER_GRID_DOLLARS}` | Target sell: `{buy_p*(1+SELL_GAIN_PCT):.4f}`\n"
+                 f"Amount: `${PER_GRID_DOLLARS}` | Target: `{buy_p*(1+SELL_GAIN_PCT):.4f}`\n"
                  f"Open grids: `{len(state['positions'])}` | Cash: `${state['cash']:.2f}`")
         elif kind == 'SELL':
             send(f"**GRID SELL** ✅ | AVAX `{buy_p:.4f}` → `{sell_p:.4f}`\n"
                  f"Profit: `+${profit:.2f}` | Held: `{held_h:.1f}h`\n"
-                 f"Open grids: `{len(state['positions'])}` | Cash: `${state['cash']:.2f}`")
+                 f"Cash: `${state['cash']:.2f}`")
+            state['last_trade_date'] = now.strftime('%Y-%m-%d')
         elif kind == 'FORCE':
-            send(f"**GRID FORCE EXIT** | AVAX `{buy_p:.4f}` (breakeven)\n"
+            send(f"**FORCE EXIT** | AVAX `{buy_p:.4f}` (breakeven)\n"
                  f"Held: `{held_h:.1f}h` | Cash: `${state['cash']:.2f}`")
 
     state['last_run'] = now.isoformat()
     save_json(STATE_FILE, state)
     save_json(TRADES_FILE, state['history'])
 
-    # Equity summary
+    # Equity
     equity = state['cash'] + sum(p['units'] * close for p in state['positions'])
     total_profit = sum(h['profit'] for h in state['history'])
     sells = [h for h in state['history'] if h['type'] == 'SELL']
     wins = sum(1 for h in sells if h['profit'] > 0)
     wr = (wins / len(sells) * 100) if sells else 0
 
+    # Compute next buy trigger
+    if state['positions']:
+        lowest = min(p['buy_price'] for p in state['positions'])
+        next_buy = lowest * (1 - SPACING_PCT)
+    else:
+        next_buy = state['anchor'] * (1 - SPACING_PCT)
+
+    dist_pct = (close - next_buy) / close * 100
+
     print(f"[EQUITY] ${equity:.2f} | Profit: ${total_profit:.2f} | "
           f"Sells: {len(sells)} | WR: {wr:.1f}%")
+    print(f"[NEXT BUY] ${next_buy:.4f} ({dist_pct:.2f}% away)")
 
     # Daily heartbeat
     today = now.strftime('%Y-%m-%d')
@@ -211,13 +223,27 @@ def run_once():
         open_val = sum(p['units'] * close for p in state['positions'])
         send(
             f"**DAILY GRID SUMMARY** | {today}\n"
-            f"Equity: `${equity:.2f}` | Cash: `${state['cash']:.2f}`\n"
-            f"Open grids: `{len(state['positions'])}` (${open_val:.2f})\n"
-            f"Total profit: `${total_profit:.2f}`\n"
-            f"Total sells: `{len(sells)}` | WR: `{wr:.1f}%`"
+            f"💰 Price: `${close:.4f}` | Anchor: `${state.get('anchor', 0):.4f}`\n"
+            f"🎯 Next BUY: `${next_buy:.4f}` ({dist_pct:.2f}% away)\n"
+            f"💵 Equity: `${equity:.2f}` | Cash: `${state['cash']:.2f}`\n"
+            f"📊 Open grids: `{len(state['positions'])}` (${open_val:.2f})\n"
+            f"📈 Total profit: `${total_profit:.2f}` | Sells: `{len(sells)}` | WR: `{wr:.1f}%`"
         )
         state['last_heartbeat'] = today
         save_json(STATE_FILE, state)
+
+    # Stale check
+    last_trade = state.get('last_trade_date')
+    if last_trade:
+        try:
+            days_since = (now.date() - datetime.strptime(last_trade, '%Y-%m-%d').date()).days
+            if days_since >= STALE_DAYS and state.get('last_stale_alert') != today:
+                send(f"⚠️ **No trades in {days_since} days** | "
+                     f"Price ${close:.4f} | Next BUY ${next_buy:.4f} ({dist_pct:.2f}% away)")
+                state['last_stale_alert'] = today
+                save_json(STATE_FILE, state)
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':
