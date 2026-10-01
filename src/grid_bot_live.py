@@ -24,6 +24,7 @@ MAX_GRIDS = 30
 MAX_HOLD_HOURS = 168
 START_BALANCE = 1000.0
 STALE_DAYS = 4
+LOOKBACK_CANDLES = 4  # Check last 4 candles for missed triggers
 
 EXCHANGE_CHAIN = [
     ('okx', {'enableRateLimit': True, 'options': {'defaultType': 'spot'}}),
@@ -84,14 +85,19 @@ def save_json(path, data):
 
 
 def fetch_ohlcv(symbol, ex):
-    raw = ex.fetch_ohlcv(symbol, TIMEFRAME, limit=100)
+    raw = ex.fetch_ohlcv(symbol, TIMEFRAME, limit=LOOKBACK_CANDLES + 5)
     df = pd.DataFrame(raw, columns=['ts', 'open', 'high', 'low', 'close', 'volume'])
     df['ts'] = pd.to_datetime(df['ts'], unit='ms')
     df = df.set_index('ts')
     return df
 
 
-def process_grid(state, high, low, close, now):
+def process_grid(state, recent_low, recent_high, close, now):
+    """
+    recent_low = lowest low over last LOOKBACK_CANDLES candles
+    recent_high = highest high over last LOOKBACK_CANDLES candles
+    close = current price
+    """
     cash = state['cash']
     positions = state['positions']
     closed = state['history']
@@ -100,7 +106,7 @@ def process_grid(state, high, low, close, now):
     # SELL FILLS
     for pos in list(positions):
         target = pos['buy_price'] * (1 + SELL_GAIN_PCT)
-        if high >= target:
+        if recent_high >= target:
             proceeds = pos['units'] * target
             profit = proceeds - pos['units'] * pos['buy_price']
             cash += proceeds
@@ -117,7 +123,7 @@ def process_grid(state, high, low, close, now):
     # FORCE EXITS
     for pos in list(positions):
         held_h = (now - pd.to_datetime(pos['buy_time'], utc=True)).total_seconds() / 3600
-        if held_h >= MAX_HOLD_HOURS and high >= pos['buy_price']:
+        if held_h >= MAX_HOLD_HOURS and recent_high >= pos['buy_price']:
             cash += pos['units'] * pos['buy_price']
             closed.append({
                 'type': 'FORCE_EXIT', 'buy_price': pos['buy_price'],
@@ -128,20 +134,25 @@ def process_grid(state, high, low, close, now):
             positions.remove(pos)
             events.append(('FORCE', pos['buy_price'], pos['buy_price'], 0, held_h))
 
-    # ANCHOR
+    # ANCHOR — only shift UP when no positions
     if state.get('anchor') is None:
         state['anchor'] = close
-    elif not positions and high > state['anchor']:
+    elif not positions and close > state['anchor']:
         state['anchor'] = max(state['anchor'], close)
 
-    # BUY FILLS
-    if len(positions) < MAX_GRIDS and cash >= PER_GRID_DOLLARS:
+    # BUY FILLS — check multiple grid levels (in case multiple triggered)
+    # Use recent_low for fill detection
+    buys_this_run = 0
+    max_buys_per_run = 5  # safety
+
+    while len(positions) < MAX_GRIDS and cash >= PER_GRID_DOLLARS and buys_this_run < max_buys_per_run:
         if not positions:
             next_level = state['anchor'] * (1 - SPACING_PCT)
         else:
             lowest = min(p['buy_price'] for p in positions)
             next_level = lowest * (1 - SPACING_PCT)
-        if low <= next_level:
+
+        if recent_low <= next_level:
             units = PER_GRID_DOLLARS / next_level
             cash -= PER_GRID_DOLLARS
             positions.append({
@@ -150,11 +161,14 @@ def process_grid(state, high, low, close, now):
                 'buy_time': now.isoformat(),
             })
             events.append(('BUY', next_level, None, None, None))
+            buys_this_run += 1
+        else:
+            break
 
     state['cash'] = round(cash, 2)
     state['positions'] = positions
     state['history'] = closed[-500:]
-    return events, next_level if 'next_level' in dir() else None
+    return events
 
 
 def run_once():
@@ -167,16 +181,16 @@ def run_once():
     ex = get_exchange()
     df = fetch_ohlcv(SYMBOL, ex)
 
-    high = float(df['high'].iloc[-1])
-    low = float(df['low'].iloc[-1])
+    recent_low = float(df['low'].iloc[-LOOKBACK_CANDLES:].min())
+    recent_high = float(df['high'].iloc[-LOOKBACK_CANDLES:].max())
     close = float(df['close'].iloc[-1])
     now = datetime.now(timezone.utc)
 
-    print(f"[PRICE] high={high:.4f} low={low:.4f} close={close:.4f}")
+    print(f"[PRICE] close={close:.4f} | recent_low={recent_low:.4f} | recent_high={recent_high:.4f}")
     print(f"[STATE] cash=${state['cash']:.2f} positions={len(state['positions'])} "
           f"anchor={state.get('anchor')}")
 
-    events, _ = process_grid(state, high, low, close, now)
+    events = process_grid(state, recent_low, recent_high, close, now)
 
     for ev in events:
         kind, buy_p, sell_p, profit, held_h = ev
@@ -197,14 +211,12 @@ def run_once():
     save_json(STATE_FILE, state)
     save_json(TRADES_FILE, state['history'])
 
-    # Equity
     equity = state['cash'] + sum(p['units'] * close for p in state['positions'])
     total_profit = sum(h['profit'] for h in state['history'])
     sells = [h for h in state['history'] if h['type'] == 'SELL']
     wins = sum(1 for h in sells if h['profit'] > 0)
     wr = (wins / len(sells) * 100) if sells else 0
 
-    # Compute next buy trigger
     if state['positions']:
         lowest = min(p['buy_price'] for p in state['positions'])
         next_buy = lowest * (1 - SPACING_PCT)
@@ -217,7 +229,6 @@ def run_once():
           f"Sells: {len(sells)} | WR: {wr:.1f}%")
     print(f"[NEXT BUY] ${next_buy:.4f} ({dist_pct:.2f}% away)")
 
-    # Daily heartbeat
     today = now.strftime('%Y-%m-%d')
     if state.get('last_heartbeat') != today:
         open_val = sum(p['units'] * close for p in state['positions'])
@@ -231,19 +242,6 @@ def run_once():
         )
         state['last_heartbeat'] = today
         save_json(STATE_FILE, state)
-
-    # Stale check
-    last_trade = state.get('last_trade_date')
-    if last_trade:
-        try:
-            days_since = (now.date() - datetime.strptime(last_trade, '%Y-%m-%d').date()).days
-            if days_since >= STALE_DAYS and state.get('last_stale_alert') != today:
-                send(f"⚠️ **No trades in {days_since} days** | "
-                     f"Price ${close:.4f} | Next BUY ${next_buy:.4f} ({dist_pct:.2f}% away)")
-                state['last_stale_alert'] = today
-                save_json(STATE_FILE, state)
-        except Exception:
-            pass
 
 
 if __name__ == '__main__':
