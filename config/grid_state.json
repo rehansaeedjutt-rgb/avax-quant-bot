@@ -1,14 +1,20 @@
 {
-  "cash": 980.0,
-  "positions": [
+  "cash": 1000.2,
+  "positions": [],
+  "history": [
     {
+      "type": "SELL",
       "buy_price": 10.9276,
+      "sell_price": 11.0369,
       "units": 1.830225,
-      "buy_time": "2026-10-01T18:43:54.975218+00:00"
+      "profit": 0.2,
+      "buy_time": "2026-10-01T18:43:54.975218+00:00",
+      "sell_time": "2026-10-01T19:48:44.526902+00:00",
+      "held_hours": 1.08
     }
   ],
-  "history": [],
   "anchor": 11.038,
   "last_heartbeat": "2026-10-01",
-  "last_run": "2026-10-01T18:43:54.975218+00:00"
+  "last_run": "2026-10-01T19:48:44.526902+00:00",
+  "last_trade_date": "2026-10-01"
 }
