@@ -12,6 +12,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -28,10 +30,11 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: python src/grid_bot_live.py
-      - name: Commit state
+      - name: Commit state (rebase-safe)
         run: |
           git config user.name "avax-grid"
           git config user.email "grid@avax.local"
           git add config/grid_state.json config/grid_trades.json || true
           git diff --staged --quiet || git commit -m "Grid update [skip ci]"
+          git pull --rebase origin main || true
           git push || true
