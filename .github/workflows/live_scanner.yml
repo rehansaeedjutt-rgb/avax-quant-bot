@@ -30,11 +30,11 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: python src/live_scanner.py
-      - name: Commit state
+      - name: Commit state (force)
         run: |
           git config user.name "avax-live"
           git config user.email "live@avax.local"
-          git add config/live_state.json config/live_trades.json || true
+          git add -f config/live_state.json config/live_trades.json 2>/dev/null || true
           git diff --staged --quiet || git commit -m "Live update [skip ci]"
           git pull --rebase origin main || true
           git push || true
