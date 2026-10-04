@@ -8,3 +8,9 @@ config/mexc.json
 config/scanner_state.json
 config/paper_state.json
 config/paper_trades.json
+config/grid_state.json
+config/grid_trades.json
+config/dca_state.json
+config/dca_trades.json
+config/live_state.json
+config/live_trades.json
