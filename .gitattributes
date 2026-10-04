@@ -1,5 +1,9 @@
-﻿config/grid_state.json merge=ours
+﻿config/live_state.json merge=ours
+config/live_trades.json merge=ours
+config/grid_state.json merge=ours
 config/grid_trades.json merge=ours
 config/scanner_state.json merge=ours
 config/paper_state.json merge=ours
 config/paper_trades.json merge=ours
+config/dca_state.json merge=ours
+config/dca_trades.json merge=ours
