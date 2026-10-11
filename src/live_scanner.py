@@ -1,12 +1,7 @@
 ﻿"""
-LIVE SIGNAL SCANNER v6.0
-Changes from v5:
-- Buy threshold: 0.30 -> 0.15
-- Near-miss threshold: 0.20 -> 0.10
-- Added AVAX/BTC ratio filter (weight 0.15)
-- Added BTC dominance filter (weight +/-0.10)
-- SMC weight reduced: 0.55 -> 0.45
-- BTC weight increased: 0.20 (kept)
+LIVE SIGNAL SCANNER v6.1
+Fix: Compute AVAX/BTC ratio from AVAX/USDT ÷ BTC/USDT
+(OKX doesn't have AVAX/BTC pair directly)
 """
 import os
 import sys
@@ -24,7 +19,6 @@ CONFIG_DIR = os.path.join(ROOT, 'config')
 STATE_FILE = os.path.join(CONFIG_DIR, 'live_state.json')
 TRADES_FILE = os.path.join(CONFIG_DIR, 'live_trades.json')
 
-# ==================== UPDATED PARAMETERS ====================
 BUY_TH = 0.15
 NEAR_TH = 0.10
 TP_PCT = 0.015
@@ -109,16 +103,37 @@ def fetch_btc(ex):
 
 
 def fetch_avax_btc_ratio(ex):
-    """Fetch AVAX/BTC ratio and check if above 20-EMA."""
+    """
+    Compute AVAX/BTC ratio = AVAX/USDT divided by BTC/USDT.
+    Works on all exchanges since AVAX/BTC pair may not exist on OKX.
+    """
     try:
-        raw = ex.fetch_ohlcv('AVAX/BTC', TIMEFRAME, limit=100)
-        if not raw or len(raw) < 25:
+        # Fetch both pairs
+        avax_raw = ex.fetch_ohlcv('AVAX/USDT', TIMEFRAME, limit=100)
+        btc_raw = ex.fetch_ohlcv('BTC/USDT', TIMEFRAME, limit=100)
+
+        if not avax_raw or not btc_raw:
+            print('[RATIO] Missing data')
             return 0
-        df = pd.DataFrame(raw, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
-        ema20 = df['c'].astype(float).ewm(span=20, adjust=False).mean()
-        current = float(df['c'].iloc[-1])
+
+        avax_df = pd.DataFrame(avax_raw, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
+        btc_df = pd.DataFrame(btc_raw, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
+
+        # Align by timestamp (inner join)
+        avax_df['ts'] = pd.to_datetime(avax_df['ts'], unit='ms')
+        btc_df['ts'] = pd.to_datetime(btc_df['ts'], unit='ms')
+
+        # Compute ratio
+        merged = avax_df[['ts', 'c']].merge(
+            btc_df[['ts', 'c']], on='ts', suffixes=('_avax', '_btc')
+        )
+        merged['ratio'] = merged['c_avax'].astype(float) / merged['c_btc'].astype(float)
+
+        ema20 = merged['ratio'].ewm(span=20, adjust=False).mean()
+        current = float(merged['ratio'].iloc[-1])
         ema = float(ema20.iloc[-1])
         ratio_up = 1 if current > ema else 0
+
         print(f'[RATIO] AVAX/BTC = {current:.8f} | EMA20 = {ema:.8f} | Up = {ratio_up}')
         return ratio_up
     except Exception as e:
@@ -127,7 +142,6 @@ def fetch_avax_btc_ratio(ex):
 
 
 def fetch_btc_dominance():
-    """Fetch BTC dominance from CoinGecko."""
     try:
         r = requests.get('https://api.coingecko.com/api/v3/global', timeout=10)
         dom = float(r.json()['data']['market_cap_percentage']['btc'])
@@ -182,11 +196,8 @@ def compute_score(df, btc_up, fg, funding, ratio_up, btc_dom):
 
     onchain = ((50 - fg) / 50) * 0.20 + np.clip(-funding * 1000, -1, 1) * 0.15
     btc_s = (btc_up * 2 - 1) * 0.20
-
-    # AVAX/BTC ratio score
     ratio_score = 0.15 if ratio_up else -0.15
 
-    # BTC dominance score
     if btc_dom > 60:
         dom_score = -0.10
     elif btc_dom < 57.8:
@@ -235,7 +246,7 @@ def msg_buy(price, tp, sl, sd, dca2, dca3):
         f"On-Chain Score : {sd['onchain']:+.3f} (weight 20%)\n"
         f"BTC Trend      : {sd['btc']:+.3f} (weight 20%)\n"
         f"AVAX/BTC Ratio : {sd['ratio']:+.3f} (weight 15%)\n"
-        f"BTC Dominance  : {sd['dom']:+.3f} (weight +/-10%)\n"
+        f"BTC Dominance  : {sd['dom']:+.3f}\n"
         f"F&G            : {sd['fg']} | Funding: {sd['funding']:.6f}\n"
         f"BTC.D          : {sd['btc_dom']:.2f}%\n"
         f"```"
@@ -267,8 +278,7 @@ def msg_tp(entry, exit_price, profit_pct, hours):
         f"Exit Price     : ${exit_price:.4f}\n"
         f"Profit         : +{profit_pct:.2f}%\n"
         f"Holding Time   : {hours:.1f} hours\n"
-        f"```\n"
-        f"**ACTION: Sell entire position if not already done**"
+        f"```"
     )
 
 
@@ -281,9 +291,7 @@ def msg_sl(entry, exit_price, loss_pct, hours):
         f"Exit Price     : ${exit_price:.4f}\n"
         f"Loss           : {loss_pct:.2f}%\n"
         f"Holding Time   : {hours:.1f} hours\n"
-        f"```\n"
-        f"**ACTION: Execute stop-loss sell at market**\n"
-        f"Do NOT re-enter until next signal"
+        f"```"
     )
 
 
@@ -316,8 +324,7 @@ def msg_near(price, score, distance, sd):
         f"Distance       : {distance:.3f}\n"
         f"AVAX/BTC       : {'UP' if sd['ratio_up'] else 'DOWN'}\n"
         f"Time (UTC)     : {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}\n"
-        f"```\n"
-        f"**Signal may fire soon. Get ready on MEXC/OKX.**"
+        f"```"
     )
 
 
@@ -376,7 +383,6 @@ def run_once():
           f"onchain={sd['onchain']:+.4f} btc={sd['btc']:+.4f} "
           f"ratio={sd['ratio']:+.4f} dom={sd['dom']:+.4f}")
 
-    # Manage active trade
     if state['active_trade']:
         t = state['active_trade']
         entry = t['entry']
@@ -418,7 +424,6 @@ def run_once():
             state['active_trade'] = None
             state['dca_level'] = 0
 
-    # New signal
     elif sd['master'] >= BUY_TH and state.get('last_signal_ts') != ts_iso:
         tp = price * (1 + TP_PCT)
         sl = price * (1 - SL_PCT)
@@ -433,18 +438,15 @@ def run_once():
         state['last_signal_ts'] = ts_iso
         state['dca_level'] = 0
 
-    # Near-miss
     elif sd['master'] >= NEAR_TH and state.get('last_near') != hour_key:
         send(msg_near(price, sd['master'], BUY_TH - sd['master'], sd))
         state['last_near'] = hour_key
 
-    # Hourly heartbeat
     elif state.get('last_hourly') != hour_key:
         status = 'Active trade' if state['active_trade'] else 'Waiting for signal'
         send(msg_hourly(price, sd['master'], status, state['active_trade'], sd))
         state['last_hourly'] = hour_key
 
-    # Daily summary
     if state.get('last_heartbeat') != today:
         h = state['history']
         wins = sum(1 for x in h if x.get('profit_pct', 0) > 0)
