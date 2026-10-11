@@ -1,9 +1,12 @@
 ﻿"""
-LIVE SIGNAL SCANNER v5.0
-Adds:
-- Hourly status heartbeat (short)
-- Score change alerts
-- Near-miss warnings (score >= 0.20)
+LIVE SIGNAL SCANNER v6.0
+Changes from v5:
+- Buy threshold: 0.30 -> 0.15
+- Near-miss threshold: 0.20 -> 0.10
+- Added AVAX/BTC ratio filter (weight 0.15)
+- Added BTC dominance filter (weight +/-0.10)
+- SMC weight reduced: 0.55 -> 0.45
+- BTC weight increased: 0.20 (kept)
 """
 import os
 import sys
@@ -21,8 +24,9 @@ CONFIG_DIR = os.path.join(ROOT, 'config')
 STATE_FILE = os.path.join(CONFIG_DIR, 'live_state.json')
 TRADES_FILE = os.path.join(CONFIG_DIR, 'live_trades.json')
 
-BUY_TH = 0.30
-NEAR_TH = 0.20
+# ==================== UPDATED PARAMETERS ====================
+BUY_TH = 0.15
+NEAR_TH = 0.10
 TP_PCT = 0.015
 SL_PCT = 0.030
 DCA_LEVEL_2_DROP = 0.02
@@ -104,6 +108,36 @@ def fetch_btc(ex):
     return int(float(df['close'].iloc[-1]) > float(ema50.iloc[-1]))
 
 
+def fetch_avax_btc_ratio(ex):
+    """Fetch AVAX/BTC ratio and check if above 20-EMA."""
+    try:
+        raw = ex.fetch_ohlcv('AVAX/BTC', TIMEFRAME, limit=100)
+        if not raw or len(raw) < 25:
+            return 0
+        df = pd.DataFrame(raw, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
+        ema20 = df['c'].astype(float).ewm(span=20, adjust=False).mean()
+        current = float(df['c'].iloc[-1])
+        ema = float(ema20.iloc[-1])
+        ratio_up = 1 if current > ema else 0
+        print(f'[RATIO] AVAX/BTC = {current:.8f} | EMA20 = {ema:.8f} | Up = {ratio_up}')
+        return ratio_up
+    except Exception as e:
+        print(f'[RATIO] Error: {e}')
+        return 0
+
+
+def fetch_btc_dominance():
+    """Fetch BTC dominance from CoinGecko."""
+    try:
+        r = requests.get('https://api.coingecko.com/api/v3/global', timeout=10)
+        dom = float(r.json()['data']['market_cap_percentage']['btc'])
+        print(f'[DOM] BTC dominance = {dom:.2f}%')
+        return dom
+    except Exception as e:
+        print(f'[DOM] Error: {e}')
+        return 59.0
+
+
 def fetch_onchain():
     fg, funding = 50, 0.0
     try:
@@ -120,7 +154,7 @@ def fetch_onchain():
     return fg, funding
 
 
-def compute_score(df, btc_up, fg, funding):
+def compute_score(df, btc_up, fg, funding, ratio_up, btc_dom):
     high = df['high'].to_numpy(dtype=float)
     low = df['low'].to_numpy(dtype=float)
     close = df['close'].to_numpy(dtype=float)
@@ -145,11 +179,32 @@ def compute_score(df, btc_up, fg, funding):
     except Exception as e:
         print(f'[SMC] Error: {e}')
         smc = 0.0
+
     onchain = ((50 - fg) / 50) * 0.20 + np.clip(-funding * 1000, -1, 1) * 0.15
-    btc_s = (btc_up * 2 - 1) * 0.15
-    master = float(np.clip(smc * 0.55 + onchain * 0.25 + btc_s * 0.20, -1, 1))
-    return {'master': master, 'smc': float(smc), 'onchain': float(onchain),
-            'btc': float(btc_s), 'fg': fg, 'funding': funding}
+    btc_s = (btc_up * 2 - 1) * 0.20
+
+    # AVAX/BTC ratio score
+    ratio_score = 0.15 if ratio_up else -0.15
+
+    # BTC dominance score
+    if btc_dom > 60:
+        dom_score = -0.10
+    elif btc_dom < 57.8:
+        dom_score = +0.10
+    else:
+        dom_score = 0.0
+
+    master = float(np.clip(
+        smc * 0.45 + onchain * 0.20 + btc_s + ratio_score + dom_score,
+        -1, 1
+    ))
+
+    return {
+        'master': master, 'smc': float(smc), 'onchain': float(onchain),
+        'btc': float(btc_s), 'ratio': float(ratio_score),
+        'dom': float(dom_score), 'fg': fg, 'funding': funding,
+        'btc_dom': btc_dom, 'ratio_up': ratio_up
+    }
 
 
 def msg_buy(price, tp, sl, sd, dca2, dca3):
@@ -170,17 +225,19 @@ def msg_buy(price, tp, sl, sd, dca2, dca3):
         f"```\n"
         f"**Position Sizing**\n"
         f"```\n"
-        f"Initial Entry    : 50% of capital at ${price:.4f}\n"
+        f"Initial Entry    : 50% at ${price:.4f}\n"
         f"DCA Level 2      : 30% at ${dca2:.4f} (-2.0%)\n"
         f"DCA Level 3      : 20% at ${dca3:.4f} (-4.0%)\n"
         f"```\n"
         f"**Signal Breakdown**\n"
         f"```\n"
-        f"SMC Score      : {sd['smc']:+.3f}\n"
-        f"On-Chain Score : {sd['onchain']:+.3f}\n"
-        f"BTC Trend      : {sd['btc']:+.3f}\n"
-        f"Fear & Greed   : {sd['fg']}\n"
-        f"Funding Rate   : {sd['funding']:.6f}\n"
+        f"SMC Score      : {sd['smc']:+.3f} (weight 45%)\n"
+        f"On-Chain Score : {sd['onchain']:+.3f} (weight 20%)\n"
+        f"BTC Trend      : {sd['btc']:+.3f} (weight 20%)\n"
+        f"AVAX/BTC Ratio : {sd['ratio']:+.3f} (weight 15%)\n"
+        f"BTC Dominance  : {sd['dom']:+.3f} (weight +/-10%)\n"
+        f"F&G            : {sd['fg']} | Funding: {sd['funding']:.6f}\n"
+        f"BTC.D          : {sd['btc_dom']:.2f}%\n"
         f"```"
     )
 
@@ -211,8 +268,7 @@ def msg_tp(entry, exit_price, profit_pct, hours):
         f"Profit         : +{profit_pct:.2f}%\n"
         f"Holding Time   : {hours:.1f} hours\n"
         f"```\n"
-        f"**ACTION: Sell entire position if not already done**\n"
-        f"Next Action    : Wait for next BUY signal"
+        f"**ACTION: Sell entire position if not already done**"
     )
 
 
@@ -227,11 +283,11 @@ def msg_sl(entry, exit_price, loss_pct, hours):
         f"Holding Time   : {hours:.1f} hours\n"
         f"```\n"
         f"**ACTION: Execute stop-loss sell at market**\n"
-        f"Next Action    : Wait for next BUY signal (do not re-enter)"
+        f"Do NOT re-enter until next signal"
     )
 
 
-def msg_hourly(price, score, status, active):
+def msg_hourly(price, score, status, active, sd):
     trade_info = "None"
     if active:
         trade_info = f"Entry ${active['entry']:.4f} | P&L {((price/active['entry']-1)*100):+.2f}%"
@@ -241,28 +297,31 @@ def msg_hourly(price, score, status, active):
         f"Time         : {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC\n"
         f"Price        : ${price:.4f}\n"
         f"Master Score : {score:+.3f}\n"
-        f"Threshold    : +0.300\n"
+        f"Threshold    : +{BUY_TH:.2f}\n"
+        f"AVAX/BTC     : {'UP' if sd['ratio_up'] else 'DOWN'}\n"
+        f"BTC.D        : {sd['btc_dom']:.2f}%\n"
         f"Status       : {status}\n"
         f"Active Trade : {trade_info}\n"
         f"```"
     )
 
 
-def msg_near(price, score, distance):
+def msg_near(price, score, distance, sd):
     return (
         f"**AVAX/USDT — WATCHING (Near BUY Threshold)**\n"
         f"```\n"
         f"Current Price  : ${price:.4f}\n"
         f"Master Score   : {score:+.3f}\n"
-        f"Threshold      : +0.300\n"
+        f"Threshold      : +{BUY_TH:.2f}\n"
         f"Distance       : {distance:.3f}\n"
+        f"AVAX/BTC       : {'UP' if sd['ratio_up'] else 'DOWN'}\n"
         f"Time (UTC)     : {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}\n"
         f"```\n"
         f"**Signal may fire soon. Get ready on MEXC/OKX.**"
     )
 
 
-def msg_daily(price, status, total, wr, score, active):
+def msg_daily(price, status, total, wr, score, active, sd):
     trade_info = "None"
     if active:
         trade_info = f"Entry ${active['entry']:.4f} | P&L {((price/active['entry']-1)*100):+.2f}%"
@@ -272,6 +331,9 @@ def msg_daily(price, status, total, wr, score, active):
         f"Date           : {datetime.now(timezone.utc).strftime('%Y-%m-%d')}\n"
         f"Current Price  : ${price:.4f}\n"
         f"Master Score   : {score:+.3f}\n"
+        f"Threshold      : +{BUY_TH:.2f}\n"
+        f"AVAX/BTC       : {'UP' if sd['ratio_up'] else 'DOWN'}\n"
+        f"BTC.D          : {sd['btc_dom']:.2f}%\n"
         f"Signal Status  : {status}\n"
         f"Active Trade   : {trade_info}\n"
         f"```\n"
@@ -293,6 +355,8 @@ def run_once():
     ex = get_exchange()
     df = fetch_avax(ex)
     btc_up = fetch_btc(ex)
+    ratio_up = fetch_avax_btc_ratio(ex)
+    btc_dom = fetch_btc_dominance()
     fg, funding = fetch_onchain()
 
     price = float(df['close'].iloc[-1])
@@ -303,14 +367,16 @@ def run_once():
     hour_key = now.strftime('%Y-%m-%d-%H')
     today = now.strftime('%Y-%m-%d')
 
-    print(f'[PRICE] ${price:.4f} | H ${high:.4f} | L ${low:.4f}')
-    print(f'[BTC] {btc_up} | F&G={fg} | Funding={funding:.6f}')
+    print(f'[PRICE] ${price:.4f}')
+    print(f'[BTC] {btc_up} | Ratio: {ratio_up} | Dom: {btc_dom:.2f}%')
+    print(f'[F&G] {fg} | Funding: {funding:.6f}')
 
-    sd = compute_score(df, btc_up, fg, funding)
+    sd = compute_score(df, btc_up, fg, funding, ratio_up, btc_dom)
     print(f"[SCORE] master={sd['master']:+.4f} smc={sd['smc']:+.4f} "
-          f"onchain={sd['onchain']:+.4f} btc={sd['btc']:+.4f}")
+          f"onchain={sd['onchain']:+.4f} btc={sd['btc']:+.4f} "
+          f"ratio={sd['ratio']:+.4f} dom={sd['dom']:+.4f}")
 
-    # ---- Manage active trade ----
+    # Manage active trade
     if state['active_trade']:
         t = state['active_trade']
         entry = t['entry']
@@ -327,13 +393,9 @@ def run_once():
             send(msg_dca(2, price, dca2, new_avg, new_tp, "30%"))
             state['dca_level'] = 2
             t['dca2_hit_at'] = ts_iso
-            print(f'[DCA] Level 2 at ${dca2:.4f}')
-
         elif dca_level < 3 and low <= dca3:
             send(msg_dca(3, price, dca3, dca3, dca3 * (1 + TP_PCT), "20%"))
             state['dca_level'] = 3
-            print(f'[DCA] Level 3 at ${dca3:.4f}')
-
         elif high >= tp_price:
             profit_pct = TP_PCT * 100
             send(msg_tp(entry, tp_price, profit_pct, hours))
@@ -341,8 +403,6 @@ def run_once():
                                      'profit_pct': profit_pct, 'closed_at': ts_iso})
             state['active_trade'] = None
             state['dca_level'] = 0
-            print(f'[TRADE] TP HIT +{profit_pct}%')
-
         elif low <= sl_price:
             loss_pct = -SL_PCT * 100
             send(msg_sl(entry, sl_price, loss_pct, hours))
@@ -350,8 +410,6 @@ def run_once():
                                      'profit_pct': loss_pct, 'closed_at': ts_iso})
             state['active_trade'] = None
             state['dca_level'] = 0
-            print(f'[TRADE] SL HIT {loss_pct}%')
-
         elif hours >= MAX_HOLD_H:
             pl = (price / entry - 1) * 100
             send(f"**AVAX/USDT — TIME EXIT**\n```\nHeld: {hours:.1f}h\nP&L: {pl:+.2f}%\n```")
@@ -360,7 +418,7 @@ def run_once():
             state['active_trade'] = None
             state['dca_level'] = 0
 
-    # ---- New signal ----
+    # New signal
     elif sd['master'] >= BUY_TH and state.get('last_signal_ts') != ts_iso:
         tp = price * (1 + TP_PCT)
         sl = price * (1 - SL_PCT)
@@ -374,31 +432,27 @@ def run_once():
         }
         state['last_signal_ts'] = ts_iso
         state['dca_level'] = 0
-        print(f'[SIGNAL] BUY @ ${price:.4f}')
 
-    # ---- Near-miss alert ----
+    # Near-miss
     elif sd['master'] >= NEAR_TH and state.get('last_near') != hour_key:
-        send(msg_near(price, sd['master'], BUY_TH - sd['master']))
+        send(msg_near(price, sd['master'], BUY_TH - sd['master'], sd))
         state['last_near'] = hour_key
-        print(f'[NEAR] Score {sd["master"]:+.3f} approaching threshold')
 
-    # ---- Hourly heartbeat ----
+    # Hourly heartbeat
     elif state.get('last_hourly') != hour_key:
         status = 'Active trade' if state['active_trade'] else 'Waiting for signal'
-        send(msg_hourly(price, sd['master'], status, state['active_trade']))
+        send(msg_hourly(price, sd['master'], status, state['active_trade'], sd))
         state['last_hourly'] = hour_key
-        print(f'[HEARTBEAT] Sent')
 
-    # ---- Daily summary ----
+    # Daily summary
     if state.get('last_heartbeat') != today:
         h = state['history']
         wins = sum(1 for x in h if x.get('profit_pct', 0) > 0)
         total = len([x for x in h if x.get('type') in ('TP', 'SL')])
         wr = (wins / total * 100) if total else 0
         status = 'ACTIVE' if state['active_trade'] else 'WAITING'
-        send(msg_daily(price, status, total, wr, sd['master'], state['active_trade']))
+        send(msg_daily(price, status, total, wr, sd['master'], state['active_trade'], sd))
         state['last_heartbeat'] = today
-        print('[DAILY] Sent')
 
     state['last_score'] = sd['master']
     save_json(STATE_FILE, state)
