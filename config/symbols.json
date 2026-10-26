@@ -1,0 +1,28 @@
+﻿{
+  "AVAX": {
+    "symbol": "AVAX/USDT",
+    "timeframe": "1d",
+    "strategy": "dca",
+    "tp_pct": 0.04,
+    "dca1_drop": 0.02,
+    "dca2_drop": 0.04,
+    "dca1_weight": 0.30,
+    "dca2_weight": 0.20,
+    "max_hold_hours": 336,
+    "state_file": "live_state_avax.json",
+    "trades_file": "live_trades_avax.json"
+  },
+  "LINK": {
+    "symbol": "LINK/USDT",
+    "timeframe": "1d",
+    "strategy": "dca",
+    "tp_pct": 0.06,
+    "dca1_drop": 0.03,
+    "dca2_drop": 0.06,
+    "dca1_weight": 0.30,
+    "dca2_weight": 0.20,
+    "max_hold_hours": 336,
+    "state_file": "live_state_link.json",
+    "trades_file": "live_trades_link.json"
+  }
+}
