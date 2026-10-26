@@ -2,7 +2,7 @@
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 */4 * * *' # Backup: Har 4 ghante baad
   workflow_dispatch:
 
 concurrency:
