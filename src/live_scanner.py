@@ -1,6 +1,5 @@
 ﻿"""
-MULTI-ASSET DCA LIVE SCANNER (AVAX + LINK)
-Both use DCA, but with independent configurations.
+MULTI-ASSET DCA LIVE SCANNER (With Doomsday Protection)
 """
 import os
 import sys
@@ -74,6 +73,7 @@ def process_dca_symbol(ex, webhook, name, cfg):
     dca2_drop = cfg['dca2_drop']
     dca1_w = cfg['dca1_weight']
     dca2_w = cfg['dca2_weight']
+    macro_sl_pct = cfg.get('macro_sl_pct', 0.15) # Default to 15% if not set
     max_hold = cfg['max_hold_hours']
     state_file = os.path.join(CONFIG_DIR, cfg['state_file'])
     trades_file = os.path.join(CONFIG_DIR, cfg['trades_file'])
@@ -95,8 +95,27 @@ def process_dca_symbol(ex, webhook, name, cfg):
     cycle = state['cycle']
 
     if cycle:
-        # 1. Check TP
-        if high >= cycle['tp']:
+        # 1. CHECK CIRCUIT BREAKER (DOOMSDAY PROTECTION)
+        if low <= cycle['start_price'] * (1 - macro_sl_pct):
+            msg = (
+                f"**🚨 [{name}] CIRCUIT BREAKER TRIGGERED 🚨**\n"
+                f"```\n"
+                f"Price dropped 15% from entry.\n"
+                f"Entry Price : ${cycle['start_price']:.4f}\n"
+                f"Current Low : ${low:.4f}\n"
+                f"Time        : {ts_str}\n"
+                f"```\n"
+                f"**ACTION:** Sell ALL {name} immediately. Capital protected."
+            )
+            send(webhook, msg)
+            state['history'].append({'profit_pct': -macro_sl_pct*100, 'type': 'CIRCUIT_BREAKER', 'closed_at': now.isoformat()})
+            state['cycle'] = None
+            save_json(state_file, state)
+            save_json(trades_file, state['history'])
+            return
+
+        # 2. Check TP
+        elif high >= cycle['tp']:
             msg = (
                 f"**✅ [{name}] TAKE PROFIT HIT**\n"
                 f"```\nAvg Entry : ${cycle['avg']:.4f}\n"
@@ -111,8 +130,8 @@ def process_dca_symbol(ex, webhook, name, cfg):
             save_json(trades_file, state['history'])
             return
 
-        # 2. Check DCA
-        if cycle['level'] < 3:
+        # 3. Check DCA
+        elif cycle['level'] < 3:
             if cycle['level'] == 1 and low <= cycle['start_price'] * (1 - dca1_drop):
                 cycle['level'] = 2
                 cycle['units'] += (cycle['initial_cost'] * dca1_w) / price
@@ -143,7 +162,7 @@ def process_dca_symbol(ex, webhook, name, cfg):
                 )
                 send(webhook, msg)
 
-        # 3. Force Exit
+        # 4. Time Exit
         hours_held = (now - pd.to_datetime(cycle['start_time'], utc=True)).total_seconds() / 3600
         if hours_held >= max_hold:
             send(webhook, f"**⚪ [{name}] TIME EXIT** (14 Days)\n```\nPrice: ${price:.4f}\n```\n**ACTION:** Sell all at market.")
@@ -165,6 +184,7 @@ def process_dca_symbol(ex, webhook, name, cfg):
                 f"**🟢 [{name}] LONG ENTRY SIGNAL**\n"
                 f"```\nEntry Price : ${price:.4f}\n"
                 f"Take Profit : ${cycle['tp']:.4f} (+{tp_pct*100:.1f}%)\n"
+                f"Hard Stop   : ${price * (1 - macro_sl_pct):.4f} (-{macro_sl_pct*100:.1f}%)\n"
                 f"Time        : {ts_str}\n```\n"
                 f"**ACTION:** Buy 50% capital at market. Set TP at ${cycle['tp']:.4f}. Keep 50% for DCA."
             )

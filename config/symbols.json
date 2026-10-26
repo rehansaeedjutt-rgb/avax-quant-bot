@@ -8,6 +8,7 @@
     "dca2_drop": 0.04,
     "dca1_weight": 0.30,
     "dca2_weight": 0.20,
+    "macro_sl_pct": 0.15,
     "max_hold_hours": 336,
     "state_file": "live_state_avax.json",
     "trades_file": "live_trades_avax.json"
@@ -21,6 +22,7 @@
     "dca2_drop": 0.06,
     "dca1_weight": 0.30,
     "dca2_weight": 0.20,
+    "macro_sl_pct": 0.15,
     "max_hold_hours": 336,
     "state_file": "live_state_link.json",
     "trades_file": "live_trades_link.json"
