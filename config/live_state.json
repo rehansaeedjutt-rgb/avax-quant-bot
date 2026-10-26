@@ -220,9 +220,9 @@
     }
   ],
   "last_signal_ts": "2026-10-21T16:01:04.559043+00:00",
-  "last_heartbeat": "2026-10-25",
-  "last_hourly": "2026-10-25-23",
-  "last_score": -0.10820000000000002,
+  "last_heartbeat": "2026-10-26",
+  "last_hourly": "2026-10-26-00",
+  "last_score": -0.10500000000000001,
   "last_near": "2026-10-24-23",
   "dca_level": 0
 }
