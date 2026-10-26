@@ -6,7 +6,6 @@ LIVE DCA LADDER BOT v8.0 (The Final Winner)
 - DCA2: Price drops 4% -> Buy 20%.
 - TP: Sell ALL at +3% profit from average.
 - No Stop Loss.
-- Force Exit: 14 days (336h).
 """
 import os
 import sys
@@ -65,7 +64,10 @@ def load_json(path, default):
     if not os.path.exists(path):
         return default
     with open(path, 'r', encoding='utf-8-sig') as f:
-        return json.load(f)
+        try:
+            return json.load(f)
+        except:
+            return default
 
 def save_json(path, data):
     with open(path, 'w', encoding='utf-8') as f:
@@ -131,7 +133,6 @@ def run_once():
     else:
         # Start new cycle
         dollars = 50.0 # Assuming $100 capital. For larger, adjust.
-        # For simplicity, we track units. Let's assume a virtual $100 account.
         cycle = {
             'start_time': now.isoformat(),
             'start_price': price,
