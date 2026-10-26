@@ -1,11 +1,9 @@
 ﻿"""
-LIVE DCA LADDER BOT v8.0 (The Final Winner)
-- 1H Timeframe
-- Entry: Buy 50% of capital.
-- DCA1: Price drops 2% -> Buy 30%.
-- DCA2: Price drops 4% -> Buy 20%.
-- TP: Sell ALL at +3% profit from average.
-- No Stop Loss.
+LIVE ULTIMATE BOT v9.1 (Final Optimized Version)
+- Timeframe: 1D (Daily)
+- Filters: MACD Bullish AND Price > EMA 200
+- DCA: 50% Entry, 30% at -2%, 20% at -4%
+- Take Profit: +4.0%
 """
 import os
 import sys
@@ -15,6 +13,7 @@ from datetime import datetime, timezone
 
 import ccxt
 import pandas as pd
+import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_DIR = os.path.join(ROOT, 'config')
@@ -22,9 +21,9 @@ STATE_FILE = os.path.join(CONFIG_DIR, 'live_state.json')
 TRADES_FILE = os.path.join(CONFIG_DIR, 'live_trades.json')
 
 SYMBOL = 'AVAX/USDT'
-TIMEFRAME = '1h'
-TP_PCT = 0.03
-MAX_HOLD_H = 336 # 14 days
+TIMEFRAME = '1d'  # Daily Timeframe
+TP_PCT = 0.04     # Optimized TP is 4%
+MAX_HOLD_H = 336  # 14 days
 
 EXCHANGE_CHAIN = [
     ('okx', {'enableRateLimit': True, 'options': {'defaultType': 'spot'}}),
@@ -73,10 +72,23 @@ def save_json(path, data):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
-def fetch_price(ex):
-    raw = ex.fetch_ohlcv(SYMBOL, TIMEFRAME, limit=5)
-    df = pd.DataFrame(raw, columns=['ts','o','h','l','c','v'])
-    return float(df['c'].iloc[-1]), float(df['h'].iloc[-1]), float(df['l'].iloc[-1])
+def fetch_data(ex):
+    raw = ex.fetch_ohlcv(SYMBOL, TIMEFRAME, limit=300)
+    df = pd.DataFrame(raw, columns=['ts','open','high','low','close','volume'])
+    return df
+
+def check_filters(df):
+    close = df['close']
+    ema200 = close.ewm(span=200, adjust=False).mean()
+    above_ema = close.iloc[-1] > ema200.iloc[-1]
+    
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    macd = ema12 - ema26
+    signal = macd.ewm(span=9, adjust=False).mean()
+    macd_bull = macd.iloc[-1] > signal.iloc[-1]
+    
+    return above_ema, macd_bull
 
 def run_once():
     state = load_json(STATE_FILE, {
@@ -84,20 +96,24 @@ def run_once():
     })
 
     ex = get_exchange()
-    price, high, low = fetch_price(ex)
+    df = fetch_data(ex)
+    price = float(df['close'].iloc[-1])
+    high = float(df['high'].iloc[-1])
+    low = float(df['low'].iloc[-1])
+    
+    above_ema, macd_bull = check_filters(df)
     now = datetime.now(timezone.utc)
     today = now.strftime('%Y-%m-%d')
 
-    print(f'[PRICE] ${price:.4f} | High: ${high:.4f} | Low: ${low:.4f}')
+    print(f'[PRICE] ${price:.4f} | EMA200: {above_ema} | MACD: {macd_bull}')
 
     cycle = state['cycle']
 
     if cycle:
-        # 1. Check TP
+        # 1. Check TP (4%)
         if high >= cycle['tp']:
-            profit = (cycle['units'] * cycle['tp']) - cycle['cost']
-            send(f"**TAKE PROFIT HIT** | AVAX\n```\nAvg Entry: ${cycle['avg']:.4f}\nExit: ${cycle['tp']:.4f}\nProfit: +3.0%\n```\n**ACTION: Sell ALL your AVAX now.**\nCycle complete. Waiting for next entry.")
-            state['history'].append({'profit_pct': 3.0, 'type': 'TP', 'closed_at': now.isoformat()})
+            send(f"**TAKE PROFIT HIT (+4.0%)** | AVAX\n```\nAvg Entry: ${cycle['avg']:.4f}\nExit: ${cycle['tp']:.4f}\n```\n**ACTION: Sell ALL your AVAX now.**")
+            state['history'].append({'profit_pct': 4.0, 'type': 'TP', 'closed_at': now.isoformat()})
             state['cycle'] = None
             save_json(STATE_FILE, state)
             save_json(TRADES_FILE, state['history'])
@@ -111,7 +127,7 @@ def run_once():
                 cycle['cost'] += (cycle['initial_cost'] * 0.30)
                 cycle['avg'] = cycle['cost'] / cycle['units']
                 cycle['tp'] = cycle['avg'] * (1 + TP_PCT)
-                send(f"**DCA LEVEL 1 TRIGGERED** (-2%)\n```\nPrice: ${price:.4f}\nAvg: ${cycle['avg']:.4f}\nNew TP: ${cycle['tp']:.4f}\n```\n**ACTION: Buy 30% more capital worth of AVAX.**")
+                send(f"**DCA LEVEL 1 TRIGGERED (-2%)** | AVAX\n```\nPrice: ${price:.4f}\nAvg: ${cycle['avg']:.4f}\nNew TP: ${cycle['tp']:.4f}\n```\n**ACTION: Buy 30% more capital worth of AVAX.**")
             
             elif cycle['level'] == 2 and low <= cycle['start_price'] * 0.96:
                 cycle['level'] = 3
@@ -119,7 +135,7 @@ def run_once():
                 cycle['cost'] += (cycle['initial_cost'] * 0.20)
                 cycle['avg'] = cycle['cost'] / cycle['units']
                 cycle['tp'] = cycle['avg'] * (1 + TP_PCT)
-                send(f"**DCA LEVEL 2 TRIGGERED** (-4%)\n```\nPrice: ${price:.4f}\nAvg: ${cycle['avg']:.4f}\nNew TP: ${cycle['tp']:.4f}\n```\n**ACTION: Buy final 20% more capital worth of AVAX.**")
+                send(f"**DCA LEVEL 2 TRIGGERED (-4%)** | AVAX\n```\nPrice: ${price:.4f}\nAvg: ${cycle['avg']:.4f}\nNew TP: ${cycle['tp']:.4f}\n```\n**ACTION: Buy final 20% more capital worth of AVAX.**")
 
         # 3. Force Exit (14 days)
         hours_held = (now - pd.to_datetime(cycle['start_time'], utc=True)).total_seconds() / 3600
@@ -131,26 +147,29 @@ def run_once():
             return
 
     else:
-        # Start new cycle
-        dollars = 50.0 # Assuming $100 capital. For larger, adjust.
-        cycle = {
-            'start_time': now.isoformat(),
-            'start_price': price,
-            'level': 1,
-            'initial_cost': 50.0,
-            'cost': 50.0,
-            'units': 50.0 / price,
-            'avg': price,
-            'tp': price * (1 + TP_PCT)
-        }
-        state['cycle'] = cycle
-        send(f"**NEW ENTRY SIGNAL** | AVAX\n```\nPrice: ${price:.4f}\nTake Profit: ${cycle['tp']:.4f} (+3.0%)\n```\n**ACTION: Buy 50% of your allocated capital now.**\nIf price drops -2% or -4%, I will tell you to DCA.")
+        # Check Filters for New Entry
+        if above_ema and macd_bull:
+            dollars = 50.0 # Assuming $100 capital
+            cycle = {
+                'start_time': now.isoformat(),
+                'start_price': price,
+                'level': 1,
+                'initial_cost': 50.0,
+                'cost': 50.0,
+                'units': 50.0 / price,
+                'avg': price,
+                'tp': price * (1 + TP_PCT)
+            }
+            state['cycle'] = cycle
+            send(f"**NEW ENTRY SIGNAL** | AVAX\n```\nPrice: ${price:.4f}\nTake Profit: ${cycle['tp']:.4f} (+4.0%)\n```\n**ACTION: Buy 50% of your allocated capital now.**\nIf price drops -2% or -4%, I will tell you to DCA.")
+        else:
+            print('[WAIT] Filters not met (MACD or EMA200 is false).')
 
     save_json(STATE_FILE, state)
 
     # Daily heartbeat
     if state.get('last_heartbeat') != today:
-        send(f"**DAILY SUMMARY** | {today}\n```\nPrice: ${price:.4f}\nStatus: {'In Cycle (Level ' + str(cycle['level']) + ')' if cycle else 'Waiting'}\n```")
+        send(f"**DAILY SUMMARY** | {today}\n```\nPrice: ${price:.4f}\nStatus: {'In Cycle (Level ' + str(cycle['level']) + ')' if cycle else 'Waiting for Filters'}\n```")
         state['last_heartbeat'] = today
         save_json(STATE_FILE, state)
 
