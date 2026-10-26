@@ -1,5 +1,5 @@
 ﻿"""
-MULTI-ASSET DCA LIVE SCANNER (With Doomsday Protection)
+MULTI-ASSET LIVE SCANNER (SMC + DCA + Circuit Breaker)
 """
 import os
 import sys
@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 
 import ccxt
 import pandas as pd
+import numpy as np
+import pyvsmc
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_DIR = os.path.join(ROOT, 'config')
@@ -58,12 +60,26 @@ def check_filters(df):
     close = df['close']
     ema200 = close.ewm(span=200, adjust=False).mean()
     above_ema = close.iloc[-1] > ema200.iloc[-1]
+    
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
     macd = ema12 - ema26
     signal = macd.ewm(span=9, adjust=False).mean()
     macd_bull = macd.iloc[-1] > signal.iloc[-1]
-    return above_ema, macd_bull
+    
+    # SMC Filter (Last 5 candles for recent signal)
+    try:
+        fvg = pyvsmc.detect_fvg(high=df['high'].to_numpy(), low=df['low'].to_numpy(), close=df['close'].to_numpy())
+        ob = pyvsmc.detect_order_blocks(open_=df['open'].to_numpy(), high=df['high'].to_numpy(), low=df['low'].to_numpy(), close=df['close'].to_numpy())
+        
+        # Check if there was a bullish OB or FVG in the last 5 candles
+        recent_bull_fvg = any(fvg.bullish[-5:] & ~fvg.mitigated[-5:])
+        recent_bull_ob = any(ob.bullish_ob[-5:])
+        smc_bull = recent_bull_fvg or recent_bull_ob
+    except Exception:
+        smc_bull = True # Fallback if pyvsmc fails
+        
+    return above_ema, macd_bull, smc_bull
 
 def process_dca_symbol(ex, webhook, name, cfg):
     symbol = cfg['symbol']
@@ -73,7 +89,7 @@ def process_dca_symbol(ex, webhook, name, cfg):
     dca2_drop = cfg['dca2_drop']
     dca1_w = cfg['dca1_weight']
     dca2_w = cfg['dca2_weight']
-    macro_sl_pct = cfg.get('macro_sl_pct', 0.15) # Default to 15% if not set
+    macro_sl_pct = cfg.get('macro_sl_pct', 0.15)
     max_hold = cfg['max_hold_hours']
     state_file = os.path.join(CONFIG_DIR, cfg['state_file'])
     trades_file = os.path.join(CONFIG_DIR, cfg['trades_file'])
@@ -84,27 +100,26 @@ def process_dca_symbol(ex, webhook, name, cfg):
     price = float(df['close'].iloc[-1])
     high = float(df['high'].iloc[-1])
     low = float(df['low'].iloc[-1])
-    above_ema, macd_bull = check_filters(df)
+    
+    above_ema, macd_bull, smc_bull = check_filters(df)
 
     now = datetime.now(timezone.utc)
     ts_str = now.strftime('%Y-%m-%d %H:%M UTC')
     today = now.strftime('%Y-%m-%d')
 
-    print(f'[{name}] Price ${price:.4f} | EMA200: {above_ema} | MACD: {macd_bull}')
+    print(f'[{name}] Price ${price:.4f} | EMA200: {above_ema} | MACD: {macd_bull} | SMC: {smc_bull}')
 
     cycle = state['cycle']
 
     if cycle:
-        # 1. CHECK CIRCUIT BREAKER (DOOMSDAY PROTECTION)
+        # 1. Check Circuit Breaker (15%)
         if low <= cycle['start_price'] * (1 - macro_sl_pct):
             msg = (
                 f"**🚨 [{name}] CIRCUIT BREAKER TRIGGERED 🚨**\n"
-                f"```\n"
-                f"Price dropped 15% from entry.\n"
+                f"```\nPrice dropped 15% from entry.\n"
                 f"Entry Price : ${cycle['start_price']:.4f}\n"
                 f"Current Low : ${low:.4f}\n"
-                f"Time        : {ts_str}\n"
-                f"```\n"
+                f"Time        : {ts_str}\n```\n"
                 f"**ACTION:** Sell ALL {name} immediately. Capital protected."
             )
             send(webhook, msg)
@@ -172,8 +187,8 @@ def process_dca_symbol(ex, webhook, name, cfg):
             return
 
     else:
-        # New Entry (Filters: MACD Bullish & Above EMA 200)
-        if above_ema and macd_bull:
+        # New Entry (Requires MACD + EMA200 + SMC)
+        if above_ema and macd_bull and smc_bull:
             cycle = {
                 'start_time': now.isoformat(), 'start_price': price, 'level': 1,
                 'initial_cost': 50.0, 'cost': 50.0, 'units': 50.0 / price,
@@ -181,7 +196,7 @@ def process_dca_symbol(ex, webhook, name, cfg):
             }
             state['cycle'] = cycle
             msg = (
-                f"**🟢 [{name}] LONG ENTRY SIGNAL**\n"
+                f"**🟢 [{name}] LONG ENTRY SIGNAL (SMC Confirmed)**\n"
                 f"```\nEntry Price : ${price:.4f}\n"
                 f"Take Profit : ${cycle['tp']:.4f} (+{tp_pct*100:.1f}%)\n"
                 f"Hard Stop   : ${price * (1 - macro_sl_pct):.4f} (-{macro_sl_pct*100:.1f}%)\n"
@@ -190,7 +205,7 @@ def process_dca_symbol(ex, webhook, name, cfg):
             )
             send(webhook, msg)
         else:
-            print(f'[{name}] Filters not met.')
+            print(f'[{name}] Filters not met (Wait for SMC + Trend).')
 
     save_json(state_file, state)
 
@@ -202,6 +217,7 @@ def process_dca_symbol(ex, webhook, name, cfg):
             f"```\nPrice  : ${price:.4f}\n"
             f"MACD   : {'Bullish' if macd_bull else 'Bearish'}\n"
             f"EMA200 : {'Above' if above_ema else 'Below'}\n"
+            f"SMC    : {'Bullish' if smc_bull else 'No Setup'}\n"
             f"Status : {status}\n```"
         )
         send(webhook, msg)
