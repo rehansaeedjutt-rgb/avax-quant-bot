@@ -1,5 +1,5 @@
 ﻿"""
-MULTI-ASSET LIVE SCANNER (SMC + DCA + Circuit Breaker)
+MULTI-ASSET LIVE SCANNER (Error-Proof)
 """
 import os
 import sys
@@ -67,28 +67,25 @@ def check_filters(df):
     signal = macd.ewm(span=9, adjust=False).mean()
     macd_bull = macd.iloc[-1] > signal.iloc[-1]
     
-    # SMC Filter (Last 5 candles for recent signal)
     try:
         fvg = pyvsmc.detect_fvg(high=df['high'].to_numpy(), low=df['low'].to_numpy(), close=df['close'].to_numpy())
         ob = pyvsmc.detect_order_blocks(open_=df['open'].to_numpy(), high=df['high'].to_numpy(), low=df['low'].to_numpy(), close=df['close'].to_numpy())
         
-        # Check if there was a bullish OB or FVG in the last 5 candles
         recent_bull_fvg = any(fvg.bullish[-5:] & ~fvg.mitigated[-5:])
         recent_bull_ob = any(ob.bullish_ob[-5:])
         smc_bull = recent_bull_fvg or recent_bull_ob
     except Exception:
-        smc_bull = True # Fallback if pyvsmc fails
+        smc_bull = True 
         
     return above_ema, macd_bull, smc_bull
 
 def process_dca_symbol(ex, webhook, name, cfg):
     symbol = cfg['symbol']
     tf = cfg['timeframe']
-    tp_pct = cfg['tp_pct']
+    tp1_pct = cfg['tp1_pct']
+    tp2_pct = cfg['tp2_pct']
     dca1_drop = cfg['dca1_drop']
     dca2_drop = cfg['dca2_drop']
-    dca1_w = cfg['dca1_weight']
-    dca2_w = cfg['dca2_weight']
     macro_sl_pct = cfg.get('macro_sl_pct', 0.15)
     max_hold = cfg['max_hold_hours']
     state_file = os.path.join(CONFIG_DIR, cfg['state_file'])
@@ -129,58 +126,94 @@ def process_dca_symbol(ex, webhook, name, cfg):
             save_json(trades_file, state['history'])
             return
 
-        # 2. Check TP
-        elif high >= cycle['tp']:
+        # 2. Check TP1 (Scale out 50%)
+        if not cycle['tp1_hit'] and high >= cycle['tp1_price']:
+            cycle['tp1_hit'] = True
+            cycle['sl'] = cycle['avg'] # Move SL to Breakeven
             msg = (
-                f"**✅ [{name}] TAKE PROFIT HIT**\n"
-                f"```\nAvg Entry : ${cycle['avg']:.4f}\n"
-                f"Exit      : ${cycle['tp']:.4f} (+{tp_pct*100:.1f}%)\n"
-                f"Time      : {ts_str}\n```\n"
-                f"**ACTION:** Sell ALL {name} now."
+                f"**🟢 [{name}] PARTIAL TAKE PROFIT (50%)**\n"
+                f"```\nEntry : ${cycle['avg']:.4f}\n"
+                f"TP1   : ${cycle['tp1_price']:.4f} (+{tp1_pct*100:.1f}%)\n"
+                f"Time  : {ts_str}\n```\n"
+                f"**ACTION:** Sell 50% of your {name} now.\n"
+                f"Move your Stop Loss to Breakeven (${cycle['avg']:.4f}).\n"
+                f"Let the rest run to TP2."
             )
             send(webhook, msg)
-            state['history'].append({'profit_pct': tp_pct*100, 'type': 'TP', 'closed_at': now.isoformat()})
+            
+        # 3. Check TP2 (Remaining 50%)
+        elif cycle['tp1_hit'] and high >= cycle['tp2_price']:
+            msg = (
+                f"**✅ [{name}] FINAL TAKE PROFIT HIT**\n"
+                f"```\nAvg Entry : ${cycle['avg']:.4f}\n"
+                f"Exit      : ${cycle['tp2_price']:.4f} (+{tp2_pct*100:.1f}%)\n"
+                f"Time      : {ts_str}\n```\n"
+                f"**ACTION:** Sell remaining 50% of {name} now. Trade complete."
+            )
+            send(webhook, msg)
+            state['history'].append({'profit_pct': tp2_pct*100, 'type': 'TP2', 'closed_at': now.isoformat()})
             state['cycle'] = None
             save_json(state_file, state)
             save_json(trades_file, state['history'])
             return
 
-        # 3. Check DCA
+        # 4. Check Stop Loss (Initial or Breakeven)
+        elif low <= cycle['sl']:
+            is_be = cycle['tp1_hit']
+            pnl_str = "0.0% (Breakeven)" if is_be else f"-{macro_sl_pct*100:.1f}%"
+            msg = (
+                f"**⚪ [{name}] STOP LOSS HIT**\n"
+                f"```\nExit : ${cycle['sl']:.4f}\n"
+                f"P&L  : {pnl_str}\n```\n"
+                f"**ACTION:** Sell remaining position."
+            )
+            send(webhook, msg)
+            state['history'].append({'profit_pct': 0 if is_be else -macro_sl_pct*100, 'type': 'BE' if is_be else 'SL', 'closed_at': now.isoformat()})
+            state['cycle'] = None
+            save_json(state_file, state)
+            save_json(trades_file, state['history'])
+            return
+
+        # 5. Check DCA
         elif cycle['level'] < 3:
-            if cycle['level'] == 1 and low <= cycle['start_price'] * (1 - dca1_drop):
+            dca1_price = cycle['start_price'] * (1 - dca1_drop)
+            dca2_price = cycle['start_price'] * (1 - dca2_drop)
+            
+            if cycle['level'] == 1 and low <= dca1_price:
                 cycle['level'] = 2
-                cycle['units'] += (cycle['initial_cost'] * dca1_w) / price
-                cycle['cost'] += (cycle['initial_cost'] * dca1_w)
+                cycle['units'] += (cycle['initial_cost'] * 0.30) / price
+                cycle['cost'] += (cycle['initial_cost'] * 0.30)
                 cycle['avg'] = cycle['cost'] / cycle['units']
-                cycle['tp'] = cycle['avg'] * (1 + tp_pct)
+                cycle['tp1_price'] = cycle['avg'] * (1 + tp1_pct)
+                cycle['tp2_price'] = cycle['avg'] * (1 + tp2_pct)
                 msg = (
                     f"**🟡 [{name}] DCA LEVEL 1 (-{dca1_drop*100:.1f}%)**\n"
                     f"```\nCurrent Price : ${price:.4f}\n"
                     f"New Avg Entry : ${cycle['avg']:.4f}\n"
-                    f"New Target    : ${cycle['tp']:.4f} (+{tp_pct*100:.1f}%)\n```\n"
-                    f"**ACTION:** Buy {dca1_w*100:.0f}% more {name}. Update TP."
+                    f"New TP1 / TP2 : ${cycle['tp1_price']:.4f} / ${cycle['tp2_price']:.4f}\n```\n"
+                    f"**ACTION:** Buy 30% more {name}. Update your TP levels."
                 )
                 send(webhook, msg)
-            
-            elif cycle['level'] == 2 and low <= cycle['start_price'] * (1 - dca2_drop):
+            elif cycle['level'] == 2 and low <= dca2_price:
                 cycle['level'] = 3
-                cycle['units'] += (cycle['initial_cost'] * dca2_w) / price
-                cycle['cost'] += (cycle['initial_cost'] * dca2_w)
+                cycle['units'] += (cycle['initial_cost'] * 0.20) / price
+                cycle['cost'] += (cycle['initial_cost'] * 0.20)
                 cycle['avg'] = cycle['cost'] / cycle['units']
-                cycle['tp'] = cycle['avg'] * (1 + tp_pct)
+                cycle['tp1_price'] = cycle['avg'] * (1 + tp1_pct)
+                cycle['tp2_price'] = cycle['avg'] * (1 + tp2_pct)
                 msg = (
                     f"**🔴 [{name}] DCA LEVEL 2 (-{dca2_drop*100:.1f}%)**\n"
                     f"```\nCurrent Price : ${price:.4f}\n"
                     f"New Avg Entry : ${cycle['avg']:.4f}\n"
-                    f"New Target    : ${cycle['tp']:.4f} (+{tp_pct*100:.1f}%)\n```\n"
-                    f"**ACTION:** Buy final {dca2_w*100:.0f}% {name}. Update TP."
+                    f"New TP1 / TP2 : ${cycle['tp1_price']:.4f} / ${cycle['tp2_price']:.4f}\n```\n"
+                    f"**ACTION:** Buy final 20% {name}. Update your TP levels."
                 )
                 send(webhook, msg)
 
-        # 4. Time Exit
+        # 6. Time Exit
         hours_held = (now - pd.to_datetime(cycle['start_time'], utc=True)).total_seconds() / 3600
         if hours_held >= max_hold:
-            send(webhook, f"**⚪ [{name}] TIME EXIT** (14 Days)\n```\nPrice: ${price:.4f}\n```\n**ACTION:** Sell all at market.")
+            send(webhook, f"**⏰ [{name}] TIME EXIT** (14 Days)\n```\nPrice: ${price:.4f}\n```\n**ACTION:** Sell all at market.")
             state['history'].append({'profit_pct': (price/cycle['avg']-1)*100, 'type': 'TIME', 'closed_at': now.isoformat()})
             state['cycle'] = None
             save_json(state_file, state)
@@ -192,20 +225,25 @@ def process_dca_symbol(ex, webhook, name, cfg):
             cycle = {
                 'start_time': now.isoformat(), 'start_price': price, 'level': 1,
                 'initial_cost': 50.0, 'cost': 50.0, 'units': 50.0 / price,
-                'avg': price, 'tp': price * (1 + tp_pct)
+                'avg': price, 
+                'tp1_price': price * (1 + tp1_pct),
+                'tp2_price': price * (1 + tp2_pct),
+                'tp1_hit': False,
+                'sl': price * (1 - macro_sl_pct)
             }
             state['cycle'] = cycle
             msg = (
                 f"**🟢 [{name}] LONG ENTRY SIGNAL (SMC Confirmed)**\n"
                 f"```\nEntry Price : ${price:.4f}\n"
-                f"Take Profit : ${cycle['tp']:.4f} (+{tp_pct*100:.1f}%)\n"
-                f"Hard Stop   : ${price * (1 - macro_sl_pct):.4f} (-{macro_sl_pct*100:.1f}%)\n"
+                f"TP1 (50%)   : ${cycle['tp1_price']:.4f} (+{tp1_pct*100:.1f}%)\n"
+                f"TP2 (50%)   : ${cycle['tp2_price']:.4f} (+{tp2_pct*100:.1f}%)\n"
+                f"Circuit Stop: ${cycle['sl']:.4f} (-{macro_sl_pct*100:.1f}%)\n"
                 f"Time        : {ts_str}\n```\n"
-                f"**ACTION:** Buy 50% capital at market. Set TP at ${cycle['tp']:.4f}. Keep 50% for DCA."
+                f"**ACTION:** Buy 50% capital now. Keep 50% for DCA."
             )
             send(webhook, msg)
         else:
-            print(f'[{name}] Filters not met (Wait for SMC + Trend).')
+            print(f'[{name}] Filters not met (Waiting for SMC/Trend).')
 
     save_json(state_file, state)
 
@@ -230,15 +268,26 @@ def run():
         print('[DISCORD] Webhook not set')
         return
 
-    with open(SYMBOLS_FILE, 'r') as f:
-        symbols = json.load(f)
+    try:
+        with open(SYMBOLS_FILE, 'r') as f:
+            symbols = json.load(f)
+    except Exception as e:
+        print(f"[FATAL ERROR] Could not read symbols.json: {e}")
+        return
 
-    ex = get_exchange()
+    try:
+        ex = get_exchange()
+    except Exception as e:
+        print(f"[FATAL ERROR] Could not connect to exchange: {e}")
+        return
+
     for name, cfg in symbols.items():
         try:
+            print(f"--- Checking {name} ---")
             process_dca_symbol(ex, webhook, name, cfg)
         except Exception as e:
             print(f'[{name}] Error: {e}')
+            continue
 
 if __name__ == '__main__':
     run()
