@@ -7,6 +7,7 @@
     "dca1_drop": 0.02,
     "dca2_drop": 0.04,
     "macro_sl_pct": 0.15,
+    "trail_pct": 0.03,
     "max_hold_hours": 336,
     "state_file": "live_state_avax.json",
     "trades_file": "live_trades_avax.json"
@@ -19,6 +20,7 @@
     "dca1_drop": 0.02,
     "dca2_drop": 0.04,
     "macro_sl_pct": 0.15,
+    "trail_pct": 0.03,
     "max_hold_hours": 336,
     "state_file": "live_state_link.json",
     "trades_file": "live_trades_link.json"
@@ -31,6 +33,7 @@
     "dca1_drop": 0.02,
     "dca2_drop": 0.04,
     "macro_sl_pct": 0.15,
+    "trail_pct": 0.03,
     "max_hold_hours": 336,
     "state_file": "live_state_sol.json",
     "trades_file": "live_trades_sol.json"
@@ -43,6 +46,7 @@
     "dca1_drop": 0.02,
     "dca2_drop": 0.04,
     "macro_sl_pct": 0.15,
+    "trail_pct": 0.03,
     "max_hold_hours": 336,
     "state_file": "live_state_ada.json",
     "trades_file": "live_trades_ada.json"
@@ -55,6 +59,7 @@
     "dca1_drop": 0.02,
     "dca2_drop": 0.04,
     "macro_sl_pct": 0.15,
+    "trail_pct": 0.03,
     "max_hold_hours": 336,
     "state_file": "live_state_sui.json",
     "trades_file": "live_trades_sui.json"
@@ -67,6 +72,7 @@
     "dca1_drop": 0.02,
     "dca2_drop": 0.04,
     "macro_sl_pct": 0.15,
+    "trail_pct": 0.03,
     "max_hold_hours": 336,
     "state_file": "live_state_dot.json",
     "trades_file": "live_trades_dot.json"

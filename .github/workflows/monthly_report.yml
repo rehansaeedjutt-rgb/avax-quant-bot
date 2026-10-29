@@ -1,0 +1,22 @@
+﻿name: Monthly Performance Report
+
+on:
+  schedule:
+    # Runs at 00:00 on day-of-month 1 (1st of every month)
+    - cron: '0 0 1 * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: pip install requests
+      - name: Send Monthly Report
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python src/monthly_report.py
