@@ -8,7 +8,10 @@ from src.core.alerts import send_discord
 from src.core.indicators import check_filters
 
 logger = logging.getLogger(__name__)
-CONFIG_DIR = 'C:/avax_quant_system/config'
+
+# FIX: Dynamic Path
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+CONFIG_DIR = os.path.join(ROOT_DIR, 'config')
 
 def load_json(path, default):
     if not os.path.exists(path): return default
@@ -145,5 +148,10 @@ def process_coin(ex, name: str, cfg: dict):
         else:
             logger.info(f"[{name}] Filters not met.")
 
+    # Daily Heartbeat
+    if state.get('last_heartbeat') != today:
+        status = f"IN CYCLE (Level {cycle['level']})" if cycle else "WAITING"
+        send_discord(f"**[{name}] DAILY REPORT**\n```\nPrice: ${price:.4f}\nStatus: {status}\n```")
+        state['last_heartbeat'] = today
         
     save_json(state_file, state)

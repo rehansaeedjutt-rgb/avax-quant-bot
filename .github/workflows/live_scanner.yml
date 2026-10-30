@@ -38,7 +38,8 @@ jobs:
         run: |
           git config user.name "avax-live"
           git config user.email "live@avax.local"
-          git add -f config/live_state.json config/live_trades.json 2>/dev/null || true
+          # Ab hum saari .json files ko force add kar rahe hain
+          git add -f config/*.json 2>/dev/null || true
           git diff --staged --quiet || git commit -m "Live update [skip ci]"
           git pull --rebase origin main || true
           git push || true

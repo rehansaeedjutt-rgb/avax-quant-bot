@@ -4,9 +4,14 @@ import json
 import logging
 from datetime import datetime
 
-# Add project root to path
-sys.path.append('C:/avax_quant_system')
+# ==============================================================================
+# FIX: Dynamic Path Resolution (Works on Windows & Linux/GitHub)
+# ==============================================================================
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.append(ROOT_DIR)
 
+# Ab hum src.core ko import kar sakte hain
 from src.core.exchange_handler import get_exchange
 from src.core.risk_manager import process_coin
 
@@ -18,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SYMBOLS_FILE = 'C:/avax_quant_system/config/symbols.json'
+SYMBOLS_FILE = os.path.join(ROOT_DIR, 'config', 'symbols.json')
 
 def main():
     logger.info("========================================")

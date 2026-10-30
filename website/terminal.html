@@ -1,0 +1,295 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Future Admiral | Live Quant Terminal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #050505;
+            --panel-bg: #0d1117;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --green: #3fb950;
+            --red: #f85149;
+            --gold: #d29922;
+            --blue: #58a6ff;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg); color: var(--text); overflow-x: hidden; }
+        
+        /* Top Ticker Tape */
+        .ticker-wrap { width: 100%; overflow: hidden; background: #000; border-bottom: 1px solid var(--border); padding: 10px 0; }
+        .ticker { display: inline-block; white-space: nowrap; padding-left: 100%; animation: ticker 30s linear infinite; font-family: 'Fira Code', monospace; font-size: 14px; }
+        .ticker-item { display: inline-block; padding: 0 40px; }
+        .ticker-item span { font-weight: 600; }
+        @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
+        
+        /* Header */
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 20px 40px; border-bottom: 1px solid var(--border); background: var(--panel-bg); }
+        .brand { display: flex; align-items: center; gap: 20px; }
+        .brand h1 { font-size: 28px; font-weight: 800; color: #fff; letter-spacing: 1px; text-transform: uppercase; }
+        .brand h1 span { color: var(--gold); }
+        .live-indicator { display: flex; align-items: center; gap: 8px; background: rgba(63, 185, 80, 0.1); padding: 6px 16px; border-radius: 20px; border: 1px solid rgba(63, 185, 80, 0.3); }
+        .dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; animation: blink 1s infinite; }
+        .live-text { color: var(--green); font-size: 12px; font-weight: 600; letter-spacing: 1px; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        
+        .clock { font-family: 'Fira Code', monospace; color: var(--text); font-size: 14px; }
+        
+        /* Main Layout */
+        .main-container { display: grid; grid-template-columns: 1.5fr 1fr; gap: 30px; padding: 30px 40px; max-width: 1600px; margin: 0 auto; }
+        
+        /* Left Side: Performance */
+        .panel-title { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; }
+        .panel-title::before { content: ''; display: block; width: 4px; height: 16px; background: var(--gold); border-radius: 2px; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }
+        .stat-box { background: var(--panel-bg); border: 1px solid var(--border); padding: 20px; border-radius: 8px; text-align: center; }
+        .stat-box h3 { font-size: 12px; color: #8b949e; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-box .val { font-size: 26px; font-weight: 800; color: #fff; font-family: 'Fira Code', monospace;}
+        .stat-box .val.green { color: var(--green); }
+        
+        .table-container { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { background: #161b22; padding: 15px; color: #8b949e; font-size: 12px; text-transform: uppercase; font-weight: 600; border-bottom: 1px solid var(--border); }
+        td { padding: 15px; border-bottom: 1px solid var(--border); font-size: 14px; font-family: 'Fira Code', monospace;}
+        tr:hover { background: rgba(255,255,255,0.02); }
+        
+        .rank { color: var(--gold); font-weight: 700; }
+        .asset { font-weight: 700; color: #fff; font-family: 'Inter', sans-serif; font-size: 15px;}
+        .win { color: var(--green); }
+        .profit { color: var(--green); font-weight: 600; }
+        .loss { color: var(--red); }
+        
+        /* Right Side: AI Terminal */
+        .terminal-panel { background: #000; border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; height: 100%; min-height: 500px; overflow: hidden; position: relative;}
+        .terminal-header { padding: 12px 20px; background: #161b22; border-bottom: 1px solid var(--border); font-family: 'Fira Code', monospace; font-size: 13px; color: #8b949e; display: flex; justify-content: space-between;}
+        .terminal-body { padding: 20px; font-family: 'Fira Code', monospace; font-size: 13px; line-height: 1.8; overflow-y: auto; flex-grow: 1; color: var(--green); }
+        .log-line { margin-bottom: 10px; animation: fadeIn 0.4s ease-in-out; }
+        .log-time { color: #8b949e; margin-right: 12px; }
+        .log-info { color: var(--blue); }
+        .log-exec { color: var(--green); font-weight: bold; }
+        .log-risk { color: var(--gold); }
+        .log-ai { color: #d2a8ff; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .cursor { display: inline-block; width: 8px; height: 15px; background: var(--green); animation: blink 1s infinite; vertical-align: bottom; margin-left: 5px;}
+        
+        /* Footer Disclaimer */
+        .footer { padding: 20px 40px; border-top: 1px solid var(--border); font-size: 12px; color: #8b949e; text-align: center; background: var(--panel-bg);}
+        
+        /* Mobile Responsive */
+        @media (max-width: 1024px) {
+            .main-container { grid-template-columns: 1fr; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .header { flex-direction: column; gap: 15px; text-align: center; }
+            .brand { justify-content: center; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Live Ticker Tape -->
+    <div class="ticker-wrap">
+        <div class="ticker" id="ticker">
+            <!-- Javascript will populate this -->
+        </div>
+    </div>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="brand">
+            <h1>FUTURE <span>ADMIRAL</span></h1>
+            <div class="live-indicator">
+                <div class="dot"></div>
+                <div class="live-text">SYSTEM ONLINE</div>
+            </div>
+        </div>
+        <div class="clock" id="clock">00:00:00 UTC</div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        
+        <!-- Left Side: Data Table -->
+        <div>
+            <div class="panel-title">Executive Asset Ranking</div>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <h3>Total Trades</h3>
+                    <div class="val">142</div>
+                </div>
+                <div class="stat-box">
+                    <h3>Overall Accuracy</h3>
+                    <div class="val green">87.5%</div>
+                </div>
+                <div class="stat-box">
+                    <h3>Net Growth</h3>
+                    <div class="val green">+14.2%</div>
+                </div>
+                <div class="stat-box">
+                    <h3>Profit Factor</h3>
+                    <div class="val">2.84</div>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Asset</th>
+                            <th>Trades</th>
+                            <th>Accuracy</th>
+                            <th>Net Growth</th>
+                            <th>PF</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="rank">1</td>
+                            <td class="asset">SOL/USDT</td>
+                            <td>20</td>
+                            <td class="win">95.0%</td>
+                            <td class="profit">+4.8%</td>
+                            <td>4.12</td>
+                        </tr>
+                        <tr>
+                            <td class="rank">2</td>
+                            <td class="asset">BTC/USDT</td>
+                            <td>45</td>
+                            <td class="win">88.8%</td>
+                            <td class="profit">+5.1%</td>
+                            <td>3.25</td>
+                        </tr>
+                        <tr>
+                            <td class="rank">3</td>
+                            <td class="asset">ETH/USDT</td>
+                            <td>34</td>
+                            <td class="win">82.3%</td>
+                            <td class="profit">+3.2%</td>
+                            <td>2.45</td>
+                        </tr>
+                        <tr>
+                            <td class="rank">4</td>
+                            <td class="asset">LINK/USDT</td>
+                            <td>12</td>
+                            <td class="win">75.0%</td>
+                            <td class="profit">+1.1%</td>
+                            <td>1.85</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div style="margin-top: 30px; background: var(--panel-bg); border: 1px solid var(--border); padding: 20px; border-radius: 8px;">
+                <div class="panel-title" style="margin-bottom: 10px;">Risk & Drawdown Analysis</div>
+                <p style="color: #8b949e; font-size: 14px; line-height: 1.6;">
+                    Capital protection remains the foundational mandate. Automated risk overlays operated continuously to limit downside exposure. 
+                    <br><br>
+                    <strong>Maximum Drawdown:</strong> 2.18% (Maintained strictly under the 2.50% ceiling)<br>
+                    <strong>Sharpe Ratio:</strong> 3.12<br>
+                    <strong>System Availability:</strong> 99.98%
+                </p>
+            </div>
+        </div>
+
+        <!-- Right Side: Live AI Terminal -->
+        <div>
+            <div class="panel-title">Live AI Execution Engine</div>
+            <div class="terminal-panel">
+                <div class="terminal-header">
+                    <span>root@future-admiral:~#</span>
+                    <span style="color:var(--green)">Ping: 12ms</span>
+                </div>
+                <div class="terminal-body" id="terminal">
+                    <!-- JS will inject logs here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        Communication & Channels: Division Lead: Person | Official Desk: Place | Inquiries: Contact via official division handles.<br><br>
+        <span style="opacity: 0.7;">This report is compiled for institutional oversight. Past execution success does not guarantee future market behavior.</span>
+    </div>
+
+    <script>
+        // --- 1. Live Clock ---
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toUTCString().replace('GMT', 'UTC');
+        }, 1000);
+
+        // --- 2. Ticker Tape Data ---
+        const coins = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'AVAX/USDT', 'LINK/USDT', 'DOT/USDT'];
+        const tickerEl = document.getElementById('ticker');
+        let tickerHTML = '';
+        
+        for(let i=0; i<2; i++) {
+            coins.forEach(c => {
+                const price = (Math.random() * 1000 + 10).toFixed(2);
+                const change = (Math.random() * 5 - 2).toFixed(2);
+                const color = change > 0 ? 'var(--green)' : 'var(--red)';
+                const arrow = change > 0 ? '▲' : '▼';
+                tickerHTML += `<div class="ticker-item">${c} <span style="color:${color}">${arrow} ${change}%</span> $${price}</div>`;
+            });
+        }
+        tickerEl.innerHTML = tickerHTML;
+
+        // --- 3. Terminal Live Logs Simulation ---
+        const terminal = document.getElementById('terminal');
+        const logs = [
+            "[INFO] Server initialized. Uptime 99.98%",
+            "[AI] Scanning multi-exchange liquidity...",
+            "[INFO] BTC/USDT Liquidity Sweep detected.",
+            "[EXEC] Opening Long on SOL/USDT @ $142.50",
+            "[AI] Neural model confirms momentum breakout.",
+            "[RISK] Trailing Stop Loss moved to Breakeven.",
+            "[EXEC] Partial Take Profit hit on ETH/USDT (+1.5%)",
+            "[INFO] Updating global risk parameters...",
+            "[AI] Monitoring AVAX/USDT for Fair Value Gap.",
+            "[EXEC] DCA Level 1 triggered on LINK/USDT.",
+            "[RISK] Circuit Breaker armed. Max drawdown protected.",
+            "[INFO] All systems optimal. Scanning next candles..."
+        ];
+        
+        let logIndex = 0;
+
+        function addLog() {
+            const now = new Date();
+            const timeStr = now.toTimeString().split(' ')[0];
+            
+            let msg = logs[logIndex];
+            let classType = "log-info";
+            if(msg.includes("[EXEC]")) classType = "log-exec";
+            if(msg.includes("[RISK]")) classType = "log-risk";
+            if(msg.includes("[AI]")) classType = "log-ai";
+            
+            const line = document.createElement('div');
+            line.className = 'log-line';
+            line.innerHTML = `<span class="log-time">[${timeStr}]</span><span class="${classType}">${msg}</span>`;
+            
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+            
+            logIndex = (logIndex + 1) % logs.length;
+            
+            if(terminal.lastChild) {
+                terminal.lastChild.innerHTML += ' <span class="cursor"></span>';
+            }
+        }
+
+        addLog();
+
+        setInterval(() => {
+            const cursors = document.querySelectorAll('.cursor');
+            cursors.forEach(c => c.remove());
+            addLog();
+        }, 2500);
+
+    </script>
+</body>
+</html>
