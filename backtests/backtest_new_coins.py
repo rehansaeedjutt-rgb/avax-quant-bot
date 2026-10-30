@@ -1,4 +1,4 @@
-﻿"""
+"""
 BACKTEST NEW COINS (DOT, XRP, SUI, ADA)
 """
 import os
@@ -136,7 +136,7 @@ def run_backtest(df, coin):
     wr = (wins / total * 100) if total else 0
     gw = sum(t['profit_pct'] for t in trades if t['profit_pct'] > 0)
     gl = abs(sum(t['profit_pct'] for t in trades if t['profit_pct'] < 0))
-    pf = (gw / gl) if gl > 0 else 0
+    pf = (gw / gl) if gl > 0 else (99.9 if gw > 0 else 0)
     
     return ret, wr, pf, dd, total
 
@@ -161,3 +161,4 @@ if __name__ == '__main__':
             
     print('-' * 75)
     print(f"TOTAL NEW PORTFOLIO TRADES/MONTH: ~{total_trades:.1f} trades")
+

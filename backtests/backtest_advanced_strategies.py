@@ -1,4 +1,4 @@
-﻿import os
+import os
 import numpy as np
 import pandas as pd
 import pyvsmc
@@ -205,7 +205,7 @@ def run_backtest(df, use_wt=False, use_ichimoku=False, use_rsi_div=False):
     wr = (wins / total * 100) if total else 0
     gw = sum(t['profit_pct'] for t in trades if t['profit_pct'] > 0)
     gl = abs(sum(t['profit_pct'] for t in trades if t['profit_pct'] < 0))
-    pf = (gw / gl) if gl > 0 else 0
+    pf = (gw / gl) if gl > 0 else (99.9 if gw > 0 else 0)
     
     return ret, wr, pf, dd, total
 
@@ -242,3 +242,4 @@ if __name__ == '__main__':
         print(f"{coin:<6} | {'Base + WT + RSI Div':<28} | {ret:>7.1f}% | {wr:>7.1f}% | {pf:>5.2f} | {dd:>6.1f}% | {total:>6}")
 
         print('-' * 95)
+

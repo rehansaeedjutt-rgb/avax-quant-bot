@@ -1,4 +1,4 @@
-﻿"""
+"""
 ULTIMATE HYBRID 4H TEST (Fixed Typo)
 """
 import os
@@ -132,14 +132,14 @@ def run_hybrid_backtest(df, symbol):
     wr = (wins / total * 100) if total else 0
     gw = sum(t['profit_pct'] for t in trades if t['profit_pct'] > 0)
     gl = abs(sum(t['profit_pct'] for t in trades if t['profit_pct'] < 0))
-    pf = (gw / gl) if gl > 0 else 0
+    pf = (gw / gl) if gl > 0 else (99.9 if gw > 0 else 0)
     
     return ret, wr, pf, dd, total
 
 if __name__ == '__main__':
     for symbol in ['AVAX', 'LINK']:
         print(f"\n{'='*80}")
-        print(f"ULTIMATE HYBRID 4H — {symbol}")
+        print(f"ULTIMATE HYBRID 4H � {symbol}")
         print(f"{'='*80}")
         
         df = load_data(symbol)
@@ -154,3 +154,4 @@ if __name__ == '__main__':
         print(f"Profit Factor  : {pf:.2f}")
         print(f"Max Drawdown   : {dd:.2f}%")
         print(f"Total Trades   : {total} ({tpm:.1f} per month)")
+

@@ -1,4 +1,4 @@
-﻿"""
+"""
 ULTIMATE HYBRID STRATEGY (SMC + Partial TP + DCA)
 Target: >80% Win Rate, ~4 Trades/Month, High Profit Factor
 """
@@ -148,14 +148,14 @@ def run_hybrid_backtest(df, symbol):
     
     gw = sum(t['profit_pct'] for t in trades if t['profit_pct'] > 0)
     gl = abs(sum(t['profit_pct'] for t in trades if t['profit_pct'] <= 0))
-    pf = (gw / gl) if gl > 0 else 0
+    pf = (gw / gl) if gl > 0 else (99.9 if gw > 0 else 0)
     
     return ret, wr, pf, dd, total, wins, losses
 
 if __name__ == '__main__':
     for symbol in ['AVAX', 'LINK']:
         print(f"\n{'='*80}")
-        print(f"ULTIMATE HYBRID TEST — {symbol} (SMC + Partial TP + DCA)")
+        print(f"ULTIMATE HYBRID TEST � {symbol} (SMC + Partial TP + DCA)")
         print(f"{'='*80}")
         
         df = load_data(symbol)
@@ -171,3 +171,4 @@ if __name__ == '__main__':
         print(f"Profit Factor  : {pf:.2f}")
         print(f"Max Drawdown   : {dd:.2f}%")
         print(f"Total Trades   : {total} ({(total/36):.1f} per month)")
+

@@ -1,4 +1,4 @@
-﻿"""
+"""
 CORRECTED BACKTEST v6.2 (Cash Bug Fixed)
 - Exact match of live bot logic
 - TP1: 1.5% (50%), Breakeven SL
@@ -140,7 +140,7 @@ def backtest(df, buy_th=0.15, max_hold=100):
     wr = (wins / total * 100) if total else 0
     gw = sum(t['profit_pct'] for t in trades if t['profit_pct'] > 0)
     gl = abs(sum(t['profit_pct'] for t in trades if t['profit_pct'] < 0))
-    pf = (gw / gl) if gl > 0 else 0
+    pf = (gw / gl) if gl > 0 else (99.9 if gw > 0 else 0)
 
     return {'ret': ret_pct, 'trades': total, 'wr': wr, 'pf': pf, 'dd': dd}
 
@@ -156,3 +156,4 @@ if __name__ == '__main__':
     print(f"Win Rate       : {r['wr']:>8.2f}%")
     print(f"Profit Factor  : {r['pf']:>8.2f}")
     print(f"Max Drawdown   : {r['dd']:>8.2f}%")
+

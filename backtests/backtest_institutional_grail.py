@@ -1,4 +1,4 @@
-﻿"""
+"""
 INSTITUTIONAL QUANT STRATEGY (v10.0 - Holy Grail)
 Modules:
 1. Baseline (MACD + EMA200 + Fixed DCA)
@@ -218,7 +218,7 @@ def backtest(df, use_atr_dca=False, use_partial_tp=False, use_smc=False, use_mac
     
     gw = sum(t['profit_pct'] for t in trades if t['profit_pct'] > 0)
     gl = abs(sum(t['profit_pct'] for t in trades if t['profit_pct'] <= 0))
-    pf = (gw / gl) if gl > 0 else 0
+    pf = (gw / gl) if gl > 0 else (99.9 if gw > 0 else 0)
     
     sl_hits = sum(1 for t in trades if t['type'] == 'SL')
     
@@ -231,7 +231,7 @@ if __name__ == '__main__':
     
     for symbol in ['AVAX', 'LINK']:
         print(f"\n{'='*90}")
-        print(f"INSTITUTIONAL BACKTEST — {symbol}/USDT (Walk-Forward Test: 2023-2026)")
+        print(f"INSTITUTIONAL BACKTEST � {symbol}/USDT (Walk-Forward Test: 2023-2026)")
         print(f"{'='*90}")
         
         df = load_coin_data(symbol, fg, fr)
@@ -257,3 +257,4 @@ if __name__ == '__main__':
             print(f'{name:<35} | {ret:>7.1f}% | {wr:>7.1f}% | {pf:>5.2f} | {dd:>6.1f}% | {sl_hits:>7} | {total:>6}')
             
         print('=' * 90)
+

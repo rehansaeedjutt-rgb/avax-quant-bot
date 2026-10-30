@@ -1,5 +1,5 @@
-ï»¿"""
-BACKTEST v6.2 â€” Exact match of live bot logic
+"""
+BACKTEST v6.2 — Exact match of live bot logic
 Rules:
 - Buy Threshold: 0.15
 - TP1: +1.5% (Close 50%, move SL to Breakeven)
@@ -136,7 +136,7 @@ def backtest(df, buy_th=0.15, max_hold=100):
     wr = (wins / total * 100) if total else 0
     gw = sum(t['profit_pct'] for t in trades if t['profit_pct'] > 0)
     gl = abs(sum(t['profit_pct'] for t in trades if t['profit_pct'] < 0))
-    pf = (gw / gl) if gl > 0 else 0
+    pf = (gw / gl) if gl > 0 else (99.9 if gw > 0 else 0)
 
     tp2_count = sum(1 for t in trades if t['type'] == 'TP2')
     be_count = sum(1 for t in trades if t['type'] == 'BE')
@@ -148,7 +148,7 @@ def backtest(df, buy_th=0.15, max_hold=100):
 
 if __name__ == '__main__':
     print('=' * 80)
-    print('BACKTEST v6.2 â€” Partial TP, Breakeven SL, 2% SL')
+    print('BACKTEST v6.2 — Partial TP, Breakeven SL, 2% SL')
     print('=' * 80)
     df = load()
     r = backtest(df)
@@ -163,3 +163,4 @@ if __name__ == '__main__':
     print(f"  Breakeven    : {r['be']:>8}")
     print(f"  Full SL      : {r['sl']:>8}")
     print(f"  Time Exit    : {r['time']:>8}")
+

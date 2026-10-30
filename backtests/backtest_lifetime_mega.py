@@ -1,4 +1,4 @@
-﻿"""
+"""
 MEGA PORTFOLIO LIFETIME BACKTEST (Since Inception)
 Tests AVAX, LINK, SOL, ADA, SUI, DOT from their exact first trading day.
 """
@@ -151,7 +151,7 @@ def run_backtest(df):
     
     gw = sum(t['profit_pct'] for t in trades if t['profit_pct'] > 0)
     gl = abs(sum(t['profit_pct'] for t in trades if t['profit_pct'] < 0))
-    pf = (gw / gl) if gl > 0 else 0
+    pf = (gw / gl) if gl > 0 else (99.9 if gw > 0 else 0)
     
     return ret, wr, pf, dd, total
 
@@ -188,3 +188,4 @@ if __name__ == '__main__':
     print('-' * 115)
     overall_tpm = total_trades_combined / (total_months_combined / len(COINS)) if total_months_combined > 0 else 0
     print(f"PORTFOLIO SUMMARY: If a student splits their capital equally among all 6 coins, they will get roughly ~{overall_tpm:.1f} trades per month.")
+

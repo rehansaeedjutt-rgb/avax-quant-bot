@@ -1,4 +1,4 @@
-﻿"""
+"""
 ADVANCED FILTERS BACKTEST (Deep Research Validation)
 Tests adding Z-Score, ADX, and BB Width filters to the Base SMC+DCA strategy.
 """
@@ -174,7 +174,7 @@ def run_backtest(df, filter_condition=None):
     wr = (wins / total * 100) if total else 0
     gw = sum(t['profit_pct'] for t in trades if t['profit_pct'] > 0)
     gl = abs(sum(t['profit_pct'] for t in trades if t['profit_pct'] < 0))
-    pf = (gw / gl) if gl > 0 else 0
+    pf = (gw / gl) if gl > 0 else (99.9 if gw > 0 else 0)
     
     return ret, wr, pf, dd, total, len(trades)
 
@@ -207,3 +207,4 @@ if __name__ == '__main__':
         print(f"{coin:<6} | {'Base + BB Width > 5%':<30} | {ret:>7.1f}% | {wr:>7.1f}% | {pf:>5.2f} | {dd:>6.1f}% | {total:>6}")
 
         print('-' * 95)
+
