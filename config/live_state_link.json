@@ -9,9 +9,9 @@
     "avg": 11.367636151170624,
     "tp1_price": 11.651827054949889,
     "tp2_price": 12.049694320240862,
-    "tp1_hit": false,
-    "sl": 9.729099999999999,
-    "highest_price": 11.446
+    "tp1_hit": true,
+    "sl": 11.367636151170624,
+    "highest_price": 11.656
   },
   "history": [],
   "last_heartbeat": "2026-11-05"
