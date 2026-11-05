@@ -1,5 +1,18 @@
 {
-  "cycle": null,
+  "cycle": {
+    "start_time": "2026-11-05T00:01:06.221461+00:00",
+    "start_price": 11.446,
+    "level": 1,
+    "initial_cost": 50.0,
+    "cost": 50.0,
+    "units": 4.368338284116722,
+    "avg": 11.446,
+    "tp1_price": 11.732149999999999,
+    "tp2_price": 12.132760000000001,
+    "tp1_hit": false,
+    "sl": 9.729099999999999,
+    "highest_price": 11.446
+  },
   "history": [],
-  "last_heartbeat": "2026-11-04"
+  "last_heartbeat": "2026-11-05"
 }
