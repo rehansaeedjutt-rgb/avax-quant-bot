@@ -1,18 +1,10 @@
 {
-  "cycle": {
-    "start_time": "2026-11-05T00:01:06.221461+00:00",
-    "start_price": 11.446,
-    "level": 2,
-    "initial_cost": 50.0,
-    "cost": 65.0,
-    "units": 5.717987375353,
-    "avg": 11.367636151170624,
-    "tp1_price": 11.651827054949889,
-    "tp2_price": 12.049694320240862,
-    "tp1_hit": true,
-    "sl": 11.367636151170624,
-    "highest_price": 11.656
-  },
-  "history": [],
+  "cycle": null,
+  "history": [
+    {
+      "profit_pct": 0.0,
+      "type": "TRAIL"
+    }
+  ],
   "last_heartbeat": "2026-11-05"
 }
