@@ -1,5 +1,10 @@
 {
   "cycle": null,
-  "history": [],
-  "last_heartbeat": "2026-10-31"
+  "history": [
+    {
+      "profit_pct": 0.0,
+      "type": "TRAIL"
+    }
+  ],
+  "last_heartbeat": "2026-11-06"
 }
