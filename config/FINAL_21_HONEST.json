@@ -340,5 +340,24 @@
     "free": "All 21 coin signals",
     "vip": "Priority alerts + Monthly PDF analysis + DCA ladder",
     "honest_note": "Real WR ~58%. Bear market = zero signals = capital protection."
+  },
+  "strategy_decision": {
+    "decision": "MAIN STRATEGY ONLY",
+    "secondary_rejected": true,
+    "rejection_reason": "Secondary mean-reversion strategy underperforms (27.6% vs 71.9%) and over-trades (50.9 vs 22.6 trades/coin/year). 7 coins negative. Not worth complexity.",
+    "zero_month_handling": {
+      "count": 2,
+      "months": [
+        "2022-05",
+        "2022-07"
+      ],
+      "plan": "Capital protection alert + Monthly market report + 50% discount next month"
+    },
+    "compounded_results": {
+      "main_avg_return_per_coin": 71.9,
+      "main_total_trades": 3321,
+      "main_trades_per_coin_per_year": 22.6,
+      "main_negative_coins": 1
+    }
   }
 }
